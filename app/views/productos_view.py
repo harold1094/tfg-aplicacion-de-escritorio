@@ -7,6 +7,7 @@ from decimal import Decimal
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QHeaderView,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -56,7 +57,14 @@ class ProductosView(QWidget):
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setShowGrid(False)
+        self.table.setWordWrap(False)
+        header = self.table.horizontalHeader()
+        header.setMinimumSectionSize(120)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
 
         layout.addWidget(title)
         layout.addWidget(subtitle)
@@ -82,4 +90,5 @@ class ProductosView(QWidget):
                     item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 self.table.setItem(row_index, column, item)
 
-        self.table.resizeColumnsToContents()
+        self.table.setColumnWidth(2, 140)
+        self.table.setColumnWidth(3, 120)

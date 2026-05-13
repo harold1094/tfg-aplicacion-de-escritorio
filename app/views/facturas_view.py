@@ -9,6 +9,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFileDialog,
+    QHeaderView,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -70,7 +71,19 @@ class FacturasView(QWidget):
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setShowGrid(False)
+        self.table.setWordWrap(False)
+        header = self.table.horizontalHeader()
+        header.setMinimumSectionSize(105)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(7, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(8, QHeaderView.ResizeMode.Fixed)
 
         layout.addWidget(title)
         layout.addWidget(subtitle)
@@ -101,7 +114,14 @@ class FacturasView(QWidget):
                     item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 self.table.setItem(row_index, column, item)
 
-        self.table.resizeColumnsToContents()
+        self.table.setColumnWidth(0, 150)
+        self.table.setColumnWidth(2, 120)
+        self.table.setColumnWidth(3, 190)
+        self.table.setColumnWidth(4, 120)
+        self.table.setColumnWidth(5, 105)
+        self.table.setColumnWidth(6, 120)
+        self.table.setColumnWidth(7, 130)
+        self.table.setColumnWidth(8, 110)
 
     def export_csv(self) -> None:
         self._export("CSV", "CSV (*.csv)", export_rows_to_csv)

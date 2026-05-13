@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QFrame,
     QGridLayout,
+    QHeaderView,
     QLabel,
     QTableWidget,
     QTableWidgetItem,
@@ -75,7 +76,17 @@ class DashboardView(QWidget):
         self.recent_table.setAlternatingRowColors(True)
         self.recent_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.recent_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.recent_table.horizontalHeader().setStretchLastSection(True)
+        self.recent_table.setMinimumHeight(360)
+        self.recent_table.setShowGrid(False)
+        self.recent_table.setWordWrap(False)
+        header = self.recent_table.horizontalHeader()
+        header.setMinimumSectionSize(120)
+        header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
 
         self.layout.addWidget(title)
         self.layout.addWidget(subtitle)
@@ -115,4 +126,7 @@ class DashboardView(QWidget):
                     item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 self.recent_table.setItem(row_index, column, item)
 
-        self.recent_table.resizeColumnsToContents()
+        self.recent_table.setColumnWidth(0, 150)
+        self.recent_table.setColumnWidth(2, 190)
+        self.recent_table.setColumnWidth(3, 130)
+        self.recent_table.setColumnWidth(4, 150)

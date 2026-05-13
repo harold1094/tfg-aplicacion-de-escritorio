@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QHeaderView,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -49,7 +50,15 @@ class ClientesView(QWidget):
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setShowGrid(False)
+        self.table.setWordWrap(False)
+        header = self.table.horizontalHeader()
+        header.setMinimumSectionSize(110)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
 
         layout.addWidget(title)
         layout.addWidget(subtitle)
@@ -72,4 +81,5 @@ class ClientesView(QWidget):
             for column, value in enumerate(values):
                 self.table.setItem(row_index, column, QTableWidgetItem(value))
 
-        self.table.resizeColumnsToContents()
+        self.table.setColumnWidth(2, 130)
+        self.table.setColumnWidth(3, 130)

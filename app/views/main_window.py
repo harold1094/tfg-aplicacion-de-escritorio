@@ -54,6 +54,9 @@ class MainWindow(QMainWindow):
         self.navigation = QListWidget()
         self.navigation.setObjectName("navigation")
         self.navigation.setFocusPolicy(Qt.NoFocus)
+        self.navigation.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.navigation.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.navigation.setFixedHeight(250)
 
         for label in ["Dashboard", "Clientes", "Productos/Servicios", "Facturas"]:
             self.navigation.addItem(QListWidgetItem(label))
@@ -92,20 +95,26 @@ QMainWindow, QWidget {
     font-size: 14px;
 }
 
+QLabel {
+    background: transparent;
+}
+
 QFrame#sidebar {
-    background: #111827;
-    min-width: 245px;
-    max-width: 245px;
+    background: #101827;
+    min-width: 280px;
+    max-width: 280px;
 }
 
 QLabel#appTitle {
     color: #ffffff;
-    font-size: 24px;
+    font-size: 25px;
     font-weight: 700;
+    padding: 0;
 }
 
 QLabel#appSubtitle, QLabel#sidebarFooter {
     color: #9ca3af;
+    padding: 0;
 }
 
 QListWidget#navigation {
@@ -116,9 +125,9 @@ QListWidget#navigation {
 }
 
 QListWidget#navigation::item {
-    padding: 12px 14px;
+    padding: 14px 16px;
     border-radius: 8px;
-    margin: 3px 0;
+    margin: 4px 0;
 }
 
 QListWidget#navigation::item:selected {
@@ -155,12 +164,14 @@ QFrame#metricCard {
 QLabel#metricTitle {
     color: #6b7280;
     font-size: 13px;
+    padding: 0;
 }
 
 QLabel#metricValue {
     color: #111827;
     font-size: 24px;
     font-weight: 700;
+    padding: 0;
 }
 
 QLineEdit {
@@ -198,6 +209,8 @@ QTableWidget {
     border: 1px solid #e5e7eb;
     border-radius: 8px;
     gridline-color: #e5e7eb;
+    selection-background-color: #dbeafe;
+    selection-color: #111827;
 }
 
 QHeaderView::section {
@@ -205,8 +218,7 @@ QHeaderView::section {
     color: #374151;
     border: none;
     border-bottom: 1px solid #d1d5db;
-    padding: 9px;
+    padding: 10px 12px;
     font-weight: 700;
 }
 """
-
