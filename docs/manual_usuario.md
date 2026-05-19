@@ -1,76 +1,104 @@
-# Manual de usuario inicial
+# Manual de usuario
 
 ## Inicio de la aplicación
 
-Para abrir la aplicación, ejecuta desde la carpeta principal:
+Ejecuta:
 
 ```bash
 python -m app.main
 ```
 
-La ventana principal muestra un menú lateral con cuatro secciones:
+Si Supabase está configurado, el login intentará autenticar contra Supabase Auth. Si no lo está, la aplicación permite acceso local para seguir trabajando en modo escritorio.
+
+## Roles
+
+- `administrador`: puede gestionar clientes, productos, facturas, backups y auditoría.
+- `contable`: puede trabajar con facturas y envíos, pero no modificar maestros ni ver auditoría.
+
+## Menú principal
+
+La aplicación puede mostrar estas secciones:
 
 - Dashboard
 - Clientes
 - Productos/Servicios
 - Facturas
+- Actividad
+
+La sección `Actividad` puede ocultarse según el rol.
 
 ## Dashboard
 
-El Dashboard muestra un resumen general:
+Muestra:
 
-- Total facturado.
-- Facturas pendientes.
-- Importe cobrado.
-- Importe pendiente.
-- Número de clientes.
-- Número de productos o servicios.
-
-También incluye una tabla con las facturas más recientes.
+- total facturado
+- importe cobrado
+- importe pendiente
+- facturas pendientes
+- facturas vencidas
+- número de clientes
+- número de productos/servicios
+- previsión del siguiente mes
+- evolución mensual
 
 ## Clientes
 
-La pantalla de Clientes permite consultar el listado inicial y buscar por nombre o email. La creación de nuevos clientes está desactivada hasta validar el esquema real de Supabase.
+Permite:
+
+- buscar clientes
+- crear cliente
+- editar cliente
+- eliminar cliente
+
+Estas acciones dependen del rol.
 
 ## Productos y servicios
 
-La pantalla de Productos/Servicios muestra un catálogo inicial. Con el esquema actual de Supabase, estos productos o servicios se obtienen a partir de los conceptos ya guardados en facturas, porque todavía no existe una tabla independiente de catálogo.
+Permite:
+
+- consultar catálogo
+- crear producto o servicio
+- editarlo
+- eliminarlo
+
+Estas acciones dependen del rol.
 
 ## Facturas
 
-La pantalla de Facturas muestra:
+Desde esta vista puedes:
 
-- Número de factura.
-- Cliente.
-- Fecha.
-- Estado.
-- Subtotal.
-- IVA.
-- Total.
-- Importe pendiente.
-- Si la factura es editable.
+- crear facturas
+- editar borradores
+- eliminar borradores si tu rol lo permite
+- registrar cobros parciales
+- adjuntar PDF o imagen
+- analizar el último adjunto
+- exportar a CSV, Excel, XML o PDF
+- enviar la factura por email
+- generar backup local
 
-Solo las facturas en estado `BORRADOR` se consideran editables. Las facturas emitidas, pagadas, parcialmente pagadas o canceladas no deben editarse directamente.
+Solo las facturas en estado `BORRADOR` son editables o eliminables.
 
-## Exportaciones
+## Adjuntos y análisis
 
-Desde la pantalla de Facturas se puede exportar el listado actual a:
+Al adjuntar un documento, la aplicación:
 
-- CSV
-- Excel
-- XML
+1. guarda una copia local
+2. intenta subirla a Supabase Storage si está disponible
+3. permite lanzar un análisis heurístico para sugerir proveedor, número, fecha e importe
 
-Al pulsar el botón de exportación, selecciona la ubicación y el nombre del archivo.
+## Email
 
-## Configuración de Supabase
+Si SMTP está configurado, el envío será real. Si no, la aplicación simula el envío y lo notifica en pantalla.
 
-Para conectar con Supabase, rellena el archivo `.env`:
+## Datos locales
 
-```env
-SUPABASE_URL=
-SUPABASE_KEY=
-```
+La aplicación usa estas rutas:
 
-Si no se configuran estas variables, la aplicación usa datos de prueba.
+- `data/desktop_data.json`
+- `data/attachments/`
+- `data/backups/`
 
-No introduzcas claves reales en capturas, documentos compartidos o mensajes públicos. Si una clave se comparte por error, debe regenerarse desde Supabase.
+## Recomendación
+
+Si trabajas en modo local y después migras a Supabase, valida primero nombres de tablas, bucket de storage y políticas antes de asumir sincronización completa.

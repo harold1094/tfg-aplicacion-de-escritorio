@@ -13,4 +13,5 @@ class Producto:
     descripcion: str
     precio: Decimal
     tipo: str = "PRODUCTO"
-
+    categoria: str = ""
+    activo: bool = True

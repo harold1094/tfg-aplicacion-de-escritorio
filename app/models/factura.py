@@ -29,16 +29,34 @@ class LineaFactura:
 
 
 @dataclass(slots=True)
+class AdjuntoFactura:
+    id: str
+    nombre_archivo: str
+    ruta: str
+    tipo_mime: str
+    tamano_bytes: int
+    sha256: str
+    fecha_registro: str
+    remote_url: str = ""
+
+
+@dataclass(slots=True)
 class Factura:
     id: str
     numero: str
     cliente_nombre: str
     fecha: date
     estado: EstadoFactura
+    cliente_id: str = ""
     lineas: list[LineaFactura] = field(default_factory=list)
     importe_pagado: Decimal = Decimal("0.00")
+    cliente_email: str = ""
+    fecha_vencimiento: date | None = None
+    categoria: str = ""
+    proyecto: str = ""
+    observaciones: str = ""
+    adjuntos: list[AdjuntoFactura] = field(default_factory=list)
 
     @property
     def editable(self) -> bool:
         return self.estado.editable
-

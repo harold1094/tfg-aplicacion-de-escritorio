@@ -1,32 +1,30 @@
-# Aplicación de escritorio para sistema de facturación
+# Aplicación de escritorio Qt para facturación
 
-Módulo de escritorio del TFG orientado a la gestión visual de clientes, productos/servicios y facturas. La aplicación está preparada para conectarse a una base de datos existente en Supabase, sin crear tablas, modificar esquemas ni realizar operaciones destructivas.
+Aplicación de escritorio del TFG desarrollada en `Python + PySide6/Qt` para gestión de clientes, productos/servicios y facturas. Mantiene integración con Supabase cuando está disponible y, si no lo está, funciona en modo local persistente para seguir operando y defender el proyecto sin dependencia externa.
 
-## Objetivo del módulo
+## Capacidades actuales
 
-El objetivo es proporcionar una aplicación profesional en Python y Qt para:
+- Login con Supabase Auth o acceso local de desarrollo cuando Supabase no está configurado.
+- Roles de escritorio `administrador` y `contable`, con permisos distintos en la interfaz.
+- CRUD de clientes, productos/servicios y facturas.
+- Cobros parciales y control de estados `BORRADOR`, `EMITIDA`, `PAGADA`, `PARCIALMENTE_PAGADA`, `CANCELADA`.
+- Dashboard con KPIs, evolución mensual, cliente principal y previsión ligera.
+- Adjuntos de factura con almacenamiento local y subida a Supabase Storage cuando está disponible.
+- Análisis OCR heurístico de adjuntos, clasificación asistida y detección de anomalías.
+- Exportación a CSV, Excel, XML y PDF.
+- Envío de factura por email con SMTP real o simulación controlada si no hay configuración.
+- Auditoría local de acciones y generación de backups del modo escritorio.
 
-- Consultar clientes, productos/servicios y facturas.
-- Preparar la creación y edición de facturas según el estado de cada factura.
-- Calcular subtotal, IVA, total, importe pagado e importe pendiente.
-- Exportar información a CSV, Excel y XML.
-- Servir como base mantenible para adaptar el proyecto al esquema real de Supabase.
-
-## Tecnologías usadas
+## Tecnologías
 
 - Python
 - PySide6 / Qt
 - Supabase
 - python-dotenv
 - openpyxl
-- csv
-- xml.etree.ElementTree
 - pytest
-- GitHub
 
 ## Instalación
-
-Desde la carpeta del proyecto:
 
 ```bash
 cd tfg-aplicacion-de-escritorio
@@ -46,55 +44,52 @@ pip install -r requirements.txt
 
 Se recomienda usar Python 3.10 o superior.
 
-## Configuración del entorno
+## Configuración
 
-Copia `.env.example` a `.env` y rellena las credenciales reales de Supabase:
+Copia `.env.example` a `.env` y rellena lo necesario:
 
 ```env
 SUPABASE_URL=
 SUPABASE_KEY=
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_USERNAME=
+SMTP_PASSWORD=
+SMTP_SENDER=
+ADMIN_EMAILS=
+ACCOUNTANT_EMAILS=
 ```
 
-No subas `.env` a GitHub. El archivo está incluido en `.gitignore` para evitar exponer credenciales.
+Notas:
+
+- Si `SUPABASE_URL` y `SUPABASE_KEY` están vacíos, la app entra en modo local persistente.
+- Si SMTP no está configurado, el envío de email queda simulado para no bloquear el flujo.
+- `ADMIN_EMAILS` y `ACCOUNTANT_EMAILS` permiten fijar roles por email en modo local o como fallback.
 
 ## Ejecución
-
-Desde la raíz del proyecto:
 
 ```bash
 python -m app.main
 ```
 
-Si las variables de Supabase no están configuradas, la aplicación arranca con datos de prueba para facilitar el desarrollo de la interfaz.
+La aplicación guarda sus datos locales en `data/desktop_data.json`, adjuntos en `data/attachments/` y backups en `data/backups/`.
 
-## Funcionalidades actuales
+## Integración con Supabase
 
-- Ventana principal con navegación entre Dashboard, Clientes, Productos/Servicios y Facturas.
-- Dashboard inicial con métricas de facturación.
-- Pantallas iniciales con tablas y datos de muestra.
-- Controladores adaptados al esquema recibido de Supabase en modo solo lectura.
-- Servicio de cálculo de facturas.
-- Exportación de datos a CSV, Excel y XML.
-- Estados profesionales de factura: BORRADOR, EMITIDA, PAGADA, PARCIALMENTE_PAGADA y CANCELADA.
-- Tests básicos del cálculo de facturas.
+La aplicación intenta usar:
 
-## Adaptación actual a Supabase
+- `clientesEmisor` para clientes.
+- `facturas` para facturas.
+- `productos_servicios` para catálogo si existe.
+- `roles_usuario` para resolver roles si existe.
+- bucket `facturas` en Supabase Storage para adjuntos si existe.
 
-La aplicación usa estas tablas del esquema recibido:
+Si alguna de esas piezas no está disponible, la app cae con elegancia a persistencia local sin interrumpir el uso del escritorio.
 
-- `clientesEmisor`: clientes de facturación. Se usan `id`, `nombre`, `cif_nif_nie`, `direccion_completa`, `correo_electronico` y `telefono`.
-- `facturas`: facturas y línea principal de producto/servicio.
+## Pruebas
 
-La tabla `cliente` no se usa en la interfaz porque contiene `password`. El catálogo de productos/servicios se muestra de forma derivada desde los campos de `facturas`, ya que en el esquema recibido no aparece una tabla independiente de productos o servicios.
+```bash
+pytest -q
+```
 
-## Funcionalidades previstas
-
-- Adaptar nombres reales de tablas y columnas de Supabase.
-- Activar creación y edición de clientes, productos/servicios y facturas cuando el esquema esté validado.
-- Incorporar autenticación si el alcance final del TFG lo requiere.
-- Añadir filtros avanzados, búsqueda y validaciones de formularios.
-- Ampliar pruebas automatizadas de controladores, servicios y reglas de negocio.
-
-## Restricciones actuales
-
-Esta base no crea SQLite, no modifica Supabase, no crea tablas y no ejecuta inserts, updates ni deletes. Para activar altas y ediciones habrá que validar antes permisos, políticas RLS y columnas definitivas.
+La suite cubre cálculo, clasificación, anomalías, previsión y soporte base para el modo escritorio.

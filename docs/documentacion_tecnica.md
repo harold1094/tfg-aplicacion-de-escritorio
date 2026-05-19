@@ -1,125 +1,112 @@
-# Documentación técnica inicial
+# Documentación técnica
 
-## Arquitectura del proyecto
+## Arquitectura
 
-La aplicación sigue una arquitectura por capas para separar interfaz, reglas de negocio, acceso a datos y documentación. Esta separación facilita explicar el proyecto en la defensa del TFG y permite cambiar el esquema real de Supabase sin rehacer toda la interfaz.
+La aplicación mantiene una arquitectura por capas:
 
-## Estructura de carpetas
+- `views`: interfaz Qt y diálogos.
+- `controllers`: coordinación entre UI, persistencia y reglas de negocio.
+- `services`: cálculo, analítica, OCR heurístico, anomalías, exportación, email, adjuntos, auditoría, roles y backups.
+- `models`: entidades de dominio y seguridad.
+
+El escritorio trabaja en dos modos:
+
+1. `Supabase activo`: intenta leer/escribir en tablas y storage remotos.
+2. `Modo local persistente`: usa `data/desktop_data.json` como almacén principal y mantiene adjuntos, auditoría y backups en disco.
+
+## Estructura relevante
 
 ```text
-tfg-aplicacion-de-escritorio/
-├── app/
-│   ├── main.py
-│   ├── config.py
-│   ├── supabase_client.py
-│   ├── models/
-│   ├── views/
-│   ├── controllers/
-│   ├── services/
-│   └── assets/
-├── docs/
-├── tests/
-├── README.md
-├── requirements.txt
-├── .env
-└── .env.example
+app/
+├── controllers/
+├── models/
+├── services/
+├── views/
+├── main.py
+├── config.py
+└── supabase_client.py
 ```
 
-## Conexión con Supabase
+## Seguridad y roles
 
-La conexión se configura con `python-dotenv` leyendo el archivo `.env`:
+La aplicación trabaja con dos roles:
 
-```env
-SUPABASE_URL=
-SUPABASE_KEY=
-```
+- `administrador`: gestión completa, borrado y acceso a auditoría.
+- `contable`: operación diaria de facturas y envío de emails, sin mantenimiento maestro ni auditoría.
 
-El módulo `app/supabase_client.py` crea el cliente de Supabase solo si ambas variables existen. Si no están configuradas, la aplicación usa datos de prueba para que la interfaz pueda desarrollarse sin depender todavía del esquema final.
+Resolución del rol:
 
-Importante: esta base no crea tablas, no modifica esquemas y no ejecuta operaciones destructivas.
+1. Si existe Supabase y tabla `roles_usuario`, se intenta leer el rol real.
+2. Si no, se usa el mapeo por `ADMIN_EMAILS` y `ACCOUNTANT_EMAILS`.
+3. Si tampoco hay mapeo, el fallback local es administrador.
 
-## Esquema de Supabase recibido
+## Persistencia
 
-La aplicación queda adaptada inicialmente a estas tablas:
+### Local
 
-- `clientesEmisor`: origen principal para clientes de facturación.
-- `facturas`: origen principal para facturas y conceptos facturados.
-- `emisores` y `serieFacturacion`: existen en el esquema, pero de momento no se modifican desde la aplicación.
+- `LocalStore` mantiene clientes, productos, facturas y auditoría en JSON.
+- `AttachmentService` copia adjuntos a `data/attachments/<invoice_id>/`.
+- `BackupService` crea snapshots del almacén local y un ZIP de adjuntos.
 
-La tabla `cliente` no se usa en las vistas porque contiene credenciales (`password`). En una aplicación de escritorio no conviene cargar ni mostrar ese campo.
+### Supabase
 
-No existe en el esquema recibido una tabla independiente de productos/servicios. Por ese motivo, `ProductoController` construye un catálogo temporal leyendo los campos `descripcion_producto_servicio`, `descripcion_general`, `precio_unitario`, `importe_linea` y `subtotal_sin_iva` desde `facturas`.
+La aplicación intenta sincronizar:
 
-## Separación por capas
+- `clientesEmisor`
+- `facturas`
+- `productos_servicios`
+- `roles_usuario`
 
-### Models
+La ausencia de tablas o columnas no rompe la aplicación; se usa fallback local.
 
-Contienen las clases de dominio:
+## Servicios principales
 
-- `Cliente`
-- `Producto`
-- `Factura`
-- `LineaFactura`
-- `EstadoFactura`
+- `invoice_calculator.py`: subtotal, IVA, total, cobrado y pendiente.
+- `analytics_service.py`: KPIs y evolución para dashboard.
+- `forecast_service.py`: previsión ligera por media ponderada reciente.
+- `classification_service.py`: sugerencias por histórico y catálogo.
+- `anomaly_detection_service.py`: duplicados, importes atípicos, campos incompletos y vencimientos.
+- `ocr_service.py`: extracción heurística desde nombre de archivo y contenido legible.
+- `attachment_service.py`: copia local y subida opcional a Supabase Storage.
+- `email_service.py`: envío SMTP o simulación controlada.
+- `audit_service.py`: log de actividad de usuario.
+- `backup_service.py`: copia local del modo escritorio.
+- `export_csv.py`, `export_excel.py`, `export_xml.py`, `export_pdf.py`: salidas documentales.
 
-Los estados de factura definidos son:
+## Interfaz Qt
 
-- `BORRADOR`: editable.
-- `EMITIDA`: no editable.
-- `PAGADA`: no editable.
-- `PARCIALMENTE_PAGADA`: no editable.
-- `CANCELADA`: no editable.
+Pantallas principales:
 
-### Views
+- `DashboardView`
+- `ClientesView`
+- `ProductosView`
+- `FacturasView`
+- `AuditView`
 
-Contienen las pantallas desarrolladas con PySide6:
+Diálogos principales:
 
-- `MainWindow`: ventana principal y navegación lateral.
-- `DashboardView`: métricas principales.
-- `ClientesView`: listado inicial de clientes.
-- `ProductosView`: catálogo de productos y servicios.
-- `FacturasView`: listado de facturas y exportaciones.
+- `LoginDialog`
+- `ClienteDialog`
+- `ProductoDialog`
+- `FacturaDialog`
+- `PaymentDialog`
 
-Las vistas no conocen detalles internos de Supabase; consumen datos a través de los controladores.
+Las tareas más pesadas del escritorio se ejecutan en background con `BackgroundRunner`:
 
-### Controllers
+- adjuntar documento
+- analizar adjunto
+- exportar archivos
+- enviar email
+- generar backup
 
-Preparan la comunicación entre vistas y datos. Actualmente trabajan en modo seguro:
+## Limitaciones actuales
 
-- Si Supabase no está configurado, devuelven datos de muestra.
-- Si el esquema real no coincide todavía, mantienen la aplicación funcionando con datos de muestra.
-- No realizan inserts, updates ni deletes.
+- El OCR es heurístico; no hay motor externo de reconocimiento visual completo.
+- La integración con Supabase depende de que existan tablas, políticas y bucket compatibles.
+- El envío de email real requiere SMTP configurado.
+- No hay sincronización con web, app móvil ni 2FA.
 
-Los controladores ya usan los nombres recibidos:
+## Validación técnica
 
-- `ClienteController`: tabla `clientesEmisor`.
-- `FacturaController`: tabla `facturas` y lectura auxiliar de `clientesEmisor`.
-- `ProductoController`: catálogo derivado desde `facturas` hasta que exista una tabla propia de productos/servicios.
-
-### Services
-
-Agrupan lógica reutilizable:
-
-- `invoice_calculator.py`: cálculo de subtotal, IVA, total, importe pagado e importe pendiente.
-- `export_csv.py`: exportación CSV.
-- `export_excel.py`: exportación Excel con `openpyxl`.
-- `export_xml.py`: exportación XML con `xml.etree.ElementTree`.
-
-## Funcionalidades del módulo de escritorio
-
-- Navegación entre Dashboard, Clientes, Productos/Servicios y Facturas.
-- Datos iniciales de prueba para desarrollo visual.
-- Preparación de conexión a Supabase con variables de entorno.
-- Cálculo profesional de importes de factura.
-- Control de estados de factura y edición limitada a borradores.
-- Exportación a CSV, Excel y XML.
-- Tests básicos del servicio de cálculo.
-
-## Próximos pasos técnicos
-
-1. Confirmar si la tabla `clientesEmisor` está creada con mayúsculas exactas o si Supabase la expone como `clientesemisor`.
-2. Confirmar los valores reales usados en `facturas.estado_pago`.
-3. Añadir un campo real de importe pagado si el sistema debe distinguir cobros parciales con precisión.
-4. Confirmar si productos/servicios tendrán tabla propia o seguirán incrustados en `facturas`.
-5. Crear formularios de alta y edición cuando se validen permisos, políticas RLS y reglas del equipo.
-6. Ampliar tests de controladores y exportaciones.
+- Suite de pruebas: `pytest -q`
+- Verificación de sintaxis: `python -m compileall app tests`

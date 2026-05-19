@@ -13,4 +13,4 @@ class Cliente:
     telefono: str = ""
     nif: str = ""
     direccion: str = ""
-
+    activo: bool = True
