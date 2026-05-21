@@ -51,12 +51,17 @@ class FacturaController:
 
     def __init__(self, supabase: Any | None = None) -> None:
         self.supabase = supabase if supabase is not None else get_supabase_client()
+        self._local_facturas: list[Factura] | None = None
 
     def list_facturas(self) -> list[Factura]:
         """Lista facturas en modo solo lectura."""
 
+        if self._local_facturas is not None:
+            return self._local_facturas
+
         if self.supabase is None:
-            return SAMPLE_FACTURAS
+            self._local_facturas = [factura for factura in SAMPLE_FACTURAS]
+            return self._local_facturas
 
         try:
             response = self.supabase.table(self.TABLE_NAME).select(
@@ -86,7 +91,121 @@ class FacturaController:
             cliente_names = self._cliente_names()
             return [self._map_factura(row, cliente_names) for row in response.data or []]
         except Exception:
-            return SAMPLE_FACTURAS
+            self._local_facturas = [factura for factura in SAMPLE_FACTURAS]
+            return self._local_facturas
+
+    def get_factura(self, factura_id: str) -> Factura | None:
+        for factura in self.list_facturas():
+            if factura.id == str(factura_id):
+                return factura
+        return None
+
+    def create_factura(
+        self,
+        cliente_nombre: str,
+        fecha: date,
+        lineas: list[LineaFactura],
+        estado: EstadoFactura = EstadoFactura.BORRADOR,
+    ) -> Factura:
+        facturas = self.list_facturas()
+        next_id = str(max((int(f.id) for f in facturas if f.id.isdigit()), default=0) + 1)
+        prefix = "BOR" if estado is EstadoFactura.BORRADOR else "FAC"
+        factura = Factura(
+            id=next_id,
+            numero=f"{prefix}-{date.today().year}-{int(next_id):04d}",
+            cliente_nombre=cliente_nombre,
+            fecha=fecha,
+            estado=estado,
+            lineas=lineas,
+            importe_pagado=Decimal("0.00"),
+        )
+        facturas.insert(0, factura)
+        self._local_facturas = facturas
+        return factura
+
+    def update_factura(
+        self,
+        factura_id: str,
+        cliente_nombre: str,
+        fecha: date,
+        lineas: list[LineaFactura],
+    ) -> Factura:
+        factura = self.get_factura(factura_id)
+        if factura is None:
+            raise ValueError("Factura no encontrada")
+        if not factura.editable:
+            raise ValueError("Solo se pueden editar facturas en borrador")
+
+        updated = Factura(
+            id=factura.id,
+            numero=factura.numero,
+            cliente_nombre=cliente_nombre,
+            fecha=fecha,
+            estado=factura.estado,
+            lineas=lineas,
+            importe_pagado=factura.importe_pagado,
+        )
+        self._replace_factura(updated)
+        return updated
+
+    def delete_factura(self, factura_id: str) -> None:
+        factura = self.get_factura(factura_id)
+        if factura is None:
+            raise ValueError("Factura no encontrada")
+        if not factura.editable:
+            raise ValueError("Solo se pueden eliminar facturas en borrador")
+        self._local_facturas = [f for f in self.list_facturas() if f.id != str(factura_id)]
+
+    def emit_factura(self, factura_id: str) -> Factura:
+        factura = self.get_factura(factura_id)
+        if factura is None:
+            raise ValueError("Factura no encontrada")
+        emitted = Factura(
+            id=factura.id,
+            numero=factura.numero.replace("BOR-", "FAC-", 1),
+            cliente_nombre=factura.cliente_nombre,
+            fecha=factura.fecha,
+            estado=EstadoFactura.EMITIDA,
+            lineas=factura.lineas,
+            importe_pagado=factura.importe_pagado,
+        )
+        self._replace_factura(emitted)
+        return emitted
+
+    def revert_to_draft(self, factura_id: str) -> Factura:
+        factura = self.get_factura(factura_id)
+        if factura is None:
+            raise ValueError("Factura no encontrada")
+        draft = Factura(
+            id=factura.id,
+            numero=factura.numero.replace("FAC-", "BOR-", 1),
+            cliente_nombre=factura.cliente_nombre,
+            fecha=factura.fecha,
+            estado=EstadoFactura.BORRADOR,
+            lineas=factura.lineas,
+            importe_pagado=Decimal("0.00"),
+        )
+        self._replace_factura(draft)
+        return draft
+
+    def cancel_factura(self, factura_id: str) -> Factura:
+        factura = self.get_factura(factura_id)
+        if factura is None:
+            raise ValueError("Factura no encontrada")
+        cancelled = Factura(
+            id=factura.id,
+            numero=factura.numero,
+            cliente_nombre=factura.cliente_nombre,
+            fecha=factura.fecha,
+            estado=EstadoFactura.CANCELADA,
+            lineas=factura.lineas,
+            importe_pagado=factura.importe_pagado,
+        )
+        self._replace_factura(cancelled)
+        return cancelled
+
+    def _replace_factura(self, updated: Factura) -> None:
+        self._local_facturas = [updated if factura.id == updated.id else factura for factura in self.list_facturas()]
 
     def list_invoice_rows(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
