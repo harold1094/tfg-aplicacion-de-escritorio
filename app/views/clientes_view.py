@@ -6,6 +6,8 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
     QFormLayout,
+    QFrame,
+    QGridLayout,
     QHeaderView,
     QHBoxLayout,
     QLabel,
@@ -68,10 +70,11 @@ class ClientesView(QWidget):
     def __init__(self, controller: ClienteController) -> None:
         super().__init__()
         self.controller = controller
+        self._card_columns = 3
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(16)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(14)
 
         title = QLabel("Clientes")
         title.setObjectName("viewTitle")
@@ -88,6 +91,10 @@ class ClientesView(QWidget):
 
         toolbar.addWidget(self.search_input, 1)
         toolbar.addWidget(new_button)
+
+        self.cards_grid = QGridLayout()
+        self.cards_grid.setHorizontalSpacing(16)
+        self.cards_grid.setVerticalSpacing(16)
 
         self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(["Nombre", "Email", "Teléfono", "NIF", "Dirección"])
@@ -109,7 +116,8 @@ class ClientesView(QWidget):
         layout.addWidget(title)
         layout.addWidget(subtitle)
         layout.addLayout(toolbar)
-        layout.addWidget(self.table)
+        layout.addLayout(self.cards_grid)
+        self.table.hide()
 
         self.refresh_data()
 
@@ -121,6 +129,75 @@ class ClientesView(QWidget):
             if not query or query in cliente.nombre.lower() or query in cliente.email.lower()
         ]
 
+        while self.cards_grid.count():
+            item = self.cards_grid.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        columns = self._grid_columns()
+        for index, cliente in enumerate(clientes):
+            nombre = self._display(cliente.nombre, "Cliente sin nombre")
+            email = self._display(cliente.email)
+            telefono = self._display(cliente.telefono)
+            nif = self._display(cliente.nif)
+            direccion = self._display(cliente.direccion)
+            card = QFrame()
+            card.setObjectName("clientCard")
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(18, 18, 18, 18)
+            card_layout.setSpacing(12)
+
+            top = QHBoxLayout()
+            top.setSpacing(12)
+            initials = "".join(part[:1] for part in nombre.split()[:2]).upper() or "CL"
+            avatar = QLabel(initials)
+            avatar.setObjectName("clientAvatar")
+            name = QLabel(nombre)
+            name.setObjectName("clientName")
+            name.setWordWrap(True)
+            nif_label = QLabel(nif)
+            nif_label.setObjectName("clientMeta")
+            name_block = QVBoxLayout()
+            name_block.setSpacing(4)
+            name_block.addWidget(name)
+            name_block.addWidget(nif_label)
+            top.addWidget(avatar)
+            top.addLayout(name_block, 1)
+            arrow = QLabel(">")
+            arrow.setObjectName("clientArrow")
+            top.addWidget(arrow, 0)
+            card_layout.addLayout(top)
+
+            email_label = QLabel(f"✉  {email}")
+            email_label.setObjectName("clientDetail")
+            email_label.setWordWrap(True)
+            phone_label = QLabel(f"☎  {telefono}")
+            phone_label.setObjectName("clientDetail")
+            address_label = QLabel(f"⌖  {direccion}")
+            address_label.setObjectName("clientDetail")
+            address_label.setWordWrap(True)
+            card_layout.addWidget(email_label)
+            card_layout.addWidget(phone_label)
+            card_layout.addWidget(address_label)
+            card_layout.addStretch(1)
+
+            divider = QFrame()
+            divider.setObjectName("clientDivider")
+            card_layout.addWidget(divider)
+
+            footer = QHBoxLayout()
+            footer.setSpacing(12)
+            billed = QLabel("Facturado\n0,00 €")
+            billed.setObjectName("clientFooter")
+            invoices = QLabel("Facturas\n0")
+            invoices.setObjectName("clientFooter")
+            footer.addWidget(billed)
+            footer.addStretch(1)
+            footer.addWidget(invoices)
+            card_layout.addLayout(footer)
+
+            self.cards_grid.addWidget(card, index // columns, index % columns)
+
         self.table.setRowCount(len(clientes))
         for row_index, cliente in enumerate(clientes):
             values = [cliente.nombre, cliente.email, cliente.telefono, cliente.nif, cliente.direccion]
@@ -129,6 +206,23 @@ class ClientesView(QWidget):
 
         self.table.setColumnWidth(2, 130)
         self.table.setColumnWidth(3, 130)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        columns = self._grid_columns()
+        if columns != self._card_columns:
+            self._card_columns = columns
+            self.refresh_data()
+
+    def _grid_columns(self) -> int:
+        return 2 if self.width() < 1350 else 3
+
+    @staticmethod
+    def _display(value: str, fallback: str = "-") -> str:
+        text = (value or "").strip()
+        if not text or text.lower() == "none":
+            return fallback
+        return text
 
     def current_clientes(self) -> list[Cliente]:
         query = self.search_input.text().strip().lower() if hasattr(self, "search_input") else ""

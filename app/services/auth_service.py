@@ -32,10 +32,19 @@ class AuthService:
         if not email or not password:
             raise RuntimeError("Debes introducir email y contrasena.")
 
-        response = self.supabase.auth.sign_in_with_password({"email": email, "password": password})
+        try:
+            response = self.supabase.auth.sign_in_with_password({"email": email, "password": password})
+        except Exception as exc:
+            message = str(exc).lower()
+            if any(
+                token in message
+                for token in ("invalid login credentials", "email not confirmed", "invalid_credentials", "user not found")
+            ):
+                raise RuntimeError("No estas registrado o la contrasena es incorrecta.") from exc
+            raise RuntimeError(f"No se pudo iniciar sesion en Supabase: {exc}") from exc
         user = getattr(response, "user", None)
         if user is None:
-            raise RuntimeError("Supabase no ha devuelto usuario para esta sesión.")
+            raise RuntimeError("No estas registrado o la contrasena es incorrecta.")
 
         metadata = getattr(user, "user_metadata", None) or {}
         resolved_email = str(getattr(user, "email", email))
