@@ -21,8 +21,9 @@ class ProductoController:
     # De momento se derivan productos/servicios desde las líneas guardadas en facturas.
     TABLE_NAME = "facturas"
 
-    def __init__(self, supabase: Any | None = None) -> None:
+    def __init__(self, supabase: Any | None = None, emisor_id: str = "") -> None:
         self.supabase = supabase if supabase is not None else get_supabase_client()
+        self.emisor_id = str(emisor_id or "")
 
     def list_productos(self) -> list[Producto]:
         """Lista productos/servicios en modo solo lectura.
@@ -33,14 +34,19 @@ class ProductoController:
 
         if self.supabase is None:
             return SAMPLE_PRODUCTOS
+        if not self.emisor_id:
+            return []
 
         try:
-            response = self.supabase.table(self.TABLE_NAME).select(
+            query = self.supabase.table(self.TABLE_NAME).select(
                 "id,tipo_factura,descripcion_general,descripcion_producto_servicio,cantidad,precio_unitario,importe_linea,subtotal_sin_iva"
-            ).execute()
+            )
+            if self.emisor_id:
+                query = query.eq("id_emisor", self.emisor_id)
+            response = query.execute()
             return self._map_productos_desde_facturas(response.data or [])
         except Exception:
-            return SAMPLE_PRODUCTOS
+            return []
 
     def count_productos(self) -> int:
         return len(self.list_productos())

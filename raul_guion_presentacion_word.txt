@@ -1,0 +1,108 @@
+RAUL - DOCUMENTO PARA MARTIN
+
+Este documento esta pensado como apoyo para montar la presentacion de la parte de Raul.
+
+La idea es explicar de forma clara:
+- como se controlan las facturas dentro de la app
+- por que los estados son importantes
+- como se exporta la informacion a varios formatos
+
+El tono debe ser natural, facil de entender y visual.
+
+--------------------------------------------------
+DIAPOSITIVA 1
+--------------------------------------------------
+
+Titulo:
+El recorrido de una factura
+
+Texto:
+La parte que voy a explicar se centra en algo muy importante dentro de la aplicacion: una factura no es solo un papel con un numero, sino un documento que va pasando por distintas etapas.
+
+Para entenderlo facil, podemos imaginar la factura como si fuera un pedido que todavia esta en movimiento. No vale lo mismo cuando la estas preparando que cuando ya esta entregada y cerrada.
+
+En nuestra app, una factura puede estar en distintos estados, por ejemplo borrador, emitida, pagada o cancelada. Esto es importante porque cada estado representa una situacion real del negocio.
+
+Si esta en borrador, significa que todavia se puede revisar o ajustar. Si esta emitida, ya se ha generado formalmente. Si esta pagada, el proceso esta cerrado. Y si esta cancelada, significa que esa factura ya no sigue adelante.
+
+Esto hace que la aplicacion no solo sirva para crear facturas, sino tambien para saber en que punto esta cada una sin necesidad de revisar todo manualmente.
+
+Dicho de forma simple, los estados funcionan como si fueran etiquetas de seguimiento. Igual que cuando ves si un paquete esta preparado, enviado o entregado, aqui podemos ver de un vistazo si una factura sigue pendiente, ya esta cerrada o necesita atencion.
+
+Imagen para esta diapositiva:
+- Captura de la vista de Facturas donde se vean varios estados
+
+Flujo visual:
+Borrador -> Emitida -> Pagada
+
+Como alternativa, tambien puede aparecer:
+Factura creada -> Factura enviada -> Factura cobrada
+
+--------------------------------------------------
+DIAPOSITIVA 2
+--------------------------------------------------
+
+Titulo:
+Control y seguimiento de facturas
+
+Texto:
+Una de las cosas utiles de este sistema es que no deja todas las facturas mezcladas como si fueran una pila de papeles sin ordenar.
+
+La aplicacion permite filtrar, revisar y seguir cada factura segun su estado. Esto ayuda mucho porque en una empresa no todas las facturas estan en la misma situacion al mismo tiempo.
+
+Puede haber algunas que ya se hayan cobrado, otras que sigan pendientes, otras que todavia esten preparandose y otras que incluso se hayan tenido que cancelar.
+
+La ventaja de tener esto controlado dentro de la aplicacion es que el usuario no tiene que ir recordando de memoria en que punto estaba cada documento. La propia app le da esa informacion de forma clara.
+
+Es como si en vez de tener una caja llena de documentos desordenados, tuvieras cada uno en su bandeja correspondiente. Asi sabes rapidamente que esta resuelto, que esta pendiente y que necesita una accion.
+
+Ademas, esta organizacion hace que trabajar con muchas facturas sea mucho mas comodo y mucho mas realista, porque se parece a como funciona un negocio de verdad.
+
+Imagen para esta diapositiva:
+- Captura de facturas con listado, filtros o etiquetas visibles
+
+Flujo visual:
+Pendientes / Emitidas / Pagadas / Canceladas
+
+O visualmente:
+Facturas -> Filtrado -> Revision -> Accion
+
+--------------------------------------------------
+DIAPOSITIVA 3
+--------------------------------------------------
+
+Titulo:
+Exportacion a varios formatos
+
+Texto:
+Otra parte importante del sistema es la exportacion. No queriamos que la informacion se quedara encerrada dentro de la app, porque en un entorno real muchas veces necesitas sacar esos datos para compartirlos, archivarlos o seguir trabajandolos fuera.
+
+Por eso la aplicacion permite exportar en varios formatos, como CSV, Excel, XML y PDF.
+
+Cada uno de esos formatos tiene su utilidad. Por ejemplo, CSV o Excel sirven muy bien para revisar datos, hacer calculos o mover informacion a otras herramientas. El PDF es util cuando quieres un documento final mas cerrado y facil de compartir. Y XML resulta util cuando necesitas una estructura mas preparada para intercambiar informacion con otros sistemas.
+
+La forma mas sencilla de explicarlo es pensar que una misma factura puede necesitar distintos "envoltorios" segun para que la vayas a usar.
+
+Si la quieres revisar o analizar, te viene bien un formato como Excel. Si la quieres enviar o guardar como documento final, te interesa mas PDF. Y si la quieres conectar con otro sistema, XML encaja mejor.
+
+Asi que no hemos hecho una app que solo muestra informacion en pantalla. Hemos hecho una app que tambien permite sacar esa informacion y reutilizarla de formas distintas.
+
+Imagen para esta diapositiva:
+- Captura de botones o zona de exportacion
+- Si no se ve claro en la app, se puede usar una captura de la vista de facturas junto a iconos de CSV, Excel, XML y PDF
+
+Flujo visual:
+Factura -> Elegir formato -> Exportar -> Reutilizar informacion
+
+--------------------------------------------------
+APERTURA RECOMENDADA
+--------------------------------------------------
+
+Yo voy a explicar la parte relacionada con el control de las facturas, sobre todo como se siguen sus estados y como la aplicacion permite sacar esa informacion en distintos formatos.
+
+--------------------------------------------------
+CIERRE RECOMENDADO
+--------------------------------------------------
+
+En resumen, esta parte del sistema no solo crea facturas, sino que permite seguir su recorrido, organizarlas de forma clara y reutilizar la informacion fuera de la aplicacion cuando hace falta.
+

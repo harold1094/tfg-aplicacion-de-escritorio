@@ -37,6 +37,16 @@ class Factura:
     estado: EstadoFactura
     lineas: list[LineaFactura] = field(default_factory=list)
     importe_pagado: Decimal = Decimal("0.00")
+    cliente_id: str = ""
+    cliente_nif: str = ""
+    cliente_email: str = ""
+    cliente_direccion: str = ""
+    notas: str = ""
+    serie: str = "FAC"
+    numero_factura: int | None = None
+    verifactu_uuid: str = ""
+    verifactu_url: str = ""
+    verifactu_qr: str = ""
 
     @property
     def editable(self) -> bool:

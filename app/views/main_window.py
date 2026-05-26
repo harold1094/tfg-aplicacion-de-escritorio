@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
+from typing import Callable
 
 from PySide6.QtCore import QDate, Qt, QUrl
 from PySide6.QtGui import QDesktopServices
@@ -20,6 +21,7 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QHeaderView,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -41,10 +43,15 @@ from app.controllers.cliente_controller import ClienteController
 from app.controllers.factura_controller import FacturaController
 from app.controllers.producto_controller import ProductoController
 from app.models.factura import EstadoFactura, Factura, LineaFactura
+from app.services.auth_service import AuthSession
+from app.services.email_service import EmailService
 from app.services.export_csv import export_rows_to_csv
 from app.services.export_excel import export_rows_to_excel
 from app.services.export_xml import export_rows_to_xml
 from app.services.invoice_calculator import calculate_invoice
+from app.services.ocr_stub import OcrStubService
+from app.services.pdf_service import generate_invoice_pdf
+from app.services.verifactu_service import VerifactuService
 from app.views.clientes_view import ClientesView
 from app.views.productos_view import ProductosView
 
@@ -74,16 +81,26 @@ class StatCard(QFrame):
         layout.addLayout(text, 1)
 
 
-class InvoiceFormDialog(QDialog):
-    def __init__(self, parent: QWidget, controller: FacturaController, factura: Factura | None = None) -> None:
+class InvoiceFormPanel(QFrame):
+    def __init__(
+        self,
+        parent: QWidget,
+        controller: FacturaController,
+        on_close: Callable[[], None],
+        on_saved: Callable[[], None],
+        factura: Factura | None = None,
+    ) -> None:
         super().__init__(parent)
         self.controller = controller
+        self.on_close = on_close
+        self.on_saved = on_saved
         self.factura = factura
-        self.setWindowTitle("Editar factura" if factura else "Nueva factura")
-        self.resize(980, 720)
+        self.setObjectName("invoiceModalCard")
+        self.setMinimumSize(980, 720)
+        self.setMaximumWidth(1180)
 
         root = QHBoxLayout(self)
-        root.setContentsMargins(18, 18, 18, 18)
+        root.setContentsMargins(24, 24, 24, 24)
         root.setSpacing(18)
 
         form_panel = QFrame()
@@ -91,9 +108,16 @@ class InvoiceFormDialog(QDialog):
         form_layout = QVBoxLayout(form_panel)
         form_layout.setSpacing(16)
 
+        heading_row = QHBoxLayout()
         title = QLabel("Editar factura" if factura else "Nueva factura")
         title.setObjectName("dialogTitle")
-        form_layout.addWidget(title)
+        close_btn = QPushButton("Cerrar")
+        close_btn.setObjectName("ghostButton")
+        close_btn.clicked.connect(self.close_panel)
+        heading_row.addWidget(title)
+        heading_row.addStretch(1)
+        heading_row.addWidget(close_btn)
+        form_layout.addLayout(heading_row)
 
         self.date_input = QDateEdit()
         self.date_input.setCalendarPopup(True)
@@ -102,11 +126,11 @@ class InvoiceFormDialog(QDialog):
         self.type_input.addItems(["Factura", "Factura simplificada", "Factura rectificativa"])
         self.client_input = QLineEdit(factura.cliente_nombre if factura else "")
         self.client_input.setPlaceholderText("Cliente S.A.")
-        self.nif_input = QLineEdit()
+        self.nif_input = QLineEdit(factura.cliente_nif if factura else "")
         self.nif_input.setPlaceholderText("NIF / CIF")
-        self.address_input = QLineEdit()
+        self.address_input = QLineEdit(factura.cliente_direccion if factura else "")
         self.address_input.setPlaceholderText("Dirección")
-        self.email_input = QLineEdit()
+        self.email_input = QLineEdit(factura.cliente_email if factura else "")
         self.email_input.setPlaceholderText("correo@cliente.es")
 
         general = QFormLayout()
@@ -138,12 +162,14 @@ class InvoiceFormDialog(QDialog):
         self.notes_input = QPlainTextEdit()
         self.notes_input.setPlaceholderText("Notas adicionales...")
         self.notes_input.setMaximumHeight(80)
+        if factura:
+            self.notes_input.setPlainText(factura.notas)
         form_layout.addWidget(self.notes_input)
 
         actions = QHBoxLayout()
         cancel = QPushButton("Cancelar")
         cancel.setObjectName("ghostButton")
-        cancel.clicked.connect(self.reject)
+        cancel.clicked.connect(self.close_panel)
         save = QPushButton("Guardar borrador")
         save.setObjectName("warningButton")
         save.clicked.connect(self.save)
@@ -245,27 +271,77 @@ class InvoiceFormDialog(QDialog):
             QMessageBox.warning(self, "Faltan líneas", "Añade al menos una línea válida.")
             return
         fecha = self.date_input.date().toPython()
-        if self.factura:
-            saved = self.controller.update_factura(self.factura.id, self.client_input.text().strip(), fecha, lines)
-        else:
-            saved = self.controller.create_factura(self.client_input.text().strip(), fecha, lines)
-        if emit:
-            self.controller.emit_factura(saved.id)
-        self.accept()
+        try:
+            if self.factura:
+                saved = self.controller.update_factura(
+                    self.factura.id,
+                    self.client_input.text().strip(),
+                    fecha,
+                    lines,
+                    cliente_email=self.email_input.text().strip(),
+                    cliente_nif=self.nif_input.text().strip(),
+                    cliente_direccion=self.address_input.text().strip(),
+                    notas=self.notes_input.toPlainText().strip(),
+                )
+            else:
+                saved = self.controller.create_factura(
+                    self.client_input.text().strip(),
+                    fecha,
+                    lines,
+                    cliente_email=self.email_input.text().strip(),
+                    cliente_nif=self.nif_input.text().strip(),
+                    cliente_direccion=self.address_input.text().strip(),
+                    notas=self.notes_input.toPlainText().strip(),
+                )
+            if emit:
+                self.controller.emit_factura(saved.id)
+        except Exception as exc:
+            QMessageBox.critical(self, "No se pudo guardar", str(exc))
+            return
+        self.on_saved()
+        self.close_panel()
+
+    def close_panel(self) -> None:
+        self.on_close()
+
+
+class ModalOverlay(QFrame):
+    def __init__(self, parent: QWidget, panel: InvoiceFormPanel) -> None:
+        super().__init__(parent)
+        self.setObjectName("modalOverlay")
+        self.panel = panel
+        self.panel.setParent(self)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(32, 24, 32, 24)
+        layout.addStretch(1)
+
+        row = QHBoxLayout()
+        row.addStretch(1)
+        row.addWidget(self.panel, 0, Qt.AlignmentFlag.AlignCenter)
+        row.addStretch(1)
+        layout.addLayout(row)
+        layout.addStretch(1)
 
 
 class MainWindow(QMainWindow):
-    def __init__(self) -> None:
+    def __init__(self, session: AuthSession | None = None) -> None:
         super().__init__()
         self.setWindowTitle("Automalize - Escritorio")
         self.resize(1320, 820)
         self.setMinimumSize(1100, 680)
+        self.session = session
 
-        self.cliente_controller = ClienteController()
-        self.producto_controller = ProductoController()
-        self.factura_controller = FacturaController()
+        emisor_id = session.emisor_id if session else ""
+        self.cliente_controller = ClienteController(emisor_id=emisor_id)
+        self.producto_controller = ProductoController(emisor_id=emisor_id)
+        self.factura_controller = FacturaController(emisor_id=emisor_id)
+        self.email_service = EmailService()
+        self.verifactu_service = VerifactuService()
+        self.ocr_service = OcrStubService()
         self.current_filter = "Todas"
         self.current_search = ""
+        self.invoice_overlay: ModalOverlay | None = None
 
         central = QWidget()
         shell = QHBoxLayout(central)
@@ -281,6 +357,10 @@ class MainWindow(QMainWindow):
         logo = QLabel("F  Automalize")
         logo.setObjectName("logo")
         side_layout.addWidget(logo)
+        context_label = QLabel("Escritorio profesional de facturacion")
+        context_label.setObjectName("sidebarSummary")
+        context_label.setWordWrap(True)
+        side_layout.addWidget(context_label)
         side_layout.addWidget(self._side_label("Principal"))
 
         self.navigation = QListWidget()
@@ -289,23 +369,35 @@ class MainWindow(QMainWindow):
         self.routes = [
             ("Dashboard", self.show_dashboard),
             ("Facturas", self.show_invoices),
-            ("Nueva Factura", self.new_invoice),
             ("Importar Factura", self.show_import),
             ("Factura por Voz", self.show_voice),
-            ("Clientes", lambda: self.set_static_page(5, "Clientes")),
-            ("Productos", lambda: self.set_static_page(6, "Productos")),
+            ("Clientes", lambda: self.set_static_page(4, "Clientes")),
+            ("Productos", lambda: self.set_static_page(5, "Productos")),
         ]
         for label, _ in self.routes:
             self.navigation.addItem(QListWidgetItem(label))
         self.navigation.currentRowChanged.connect(self.handle_nav)
         side_layout.addWidget(self.navigation, 1)
         side_layout.addWidget(self._side_label("Sistema"))
-        theme = QPushButton("Modo oscuro")
+        theme = QPushButton("Tema visual")
         theme.setObjectName("sideButton")
-        theme.clicked.connect(lambda: QMessageBox.information(self, "Tema", "El tema oscuro de Automalize está activo."))
+        theme.clicked.connect(lambda: QMessageBox.information(self, "Tema", "Tema visual profesional activo."))
         side_layout.addWidget(theme)
+        user_card = QFrame()
+        user_card.setObjectName("userCard")
+        user_layout = QVBoxLayout(user_card)
+        user_layout.setContentsMargins(16, 16, 16, 16)
+        user_layout.setSpacing(4)
+        user_name = QLabel("Admin conectado" if session else "Modo local")
+        user_name.setObjectName("userCardTitle")
+        user_email = QLabel(session.email if session else "Sin Supabase")
+        user_email.setObjectName("userCardText")
+        user_layout.addWidget(user_name)
+        user_layout.addWidget(user_email)
+        side_layout.addWidget(user_card)
 
         content = QFrame()
+        self.content_frame = content
         content.setObjectName("content")
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(0, 0, 0, 0)
@@ -332,7 +424,6 @@ class MainWindow(QMainWindow):
         self.voice_page = self._scroll_page()
         self.stack.addWidget(self.dashboard_page)
         self.stack.addWidget(self.invoices_page)
-        self.stack.addWidget(self._placeholder("Nueva Factura"))
         self.stack.addWidget(self.import_page)
         self.stack.addWidget(self.voice_page)
         self.stack.addWidget(ClientesView(self.cliente_controller))
@@ -383,6 +474,11 @@ class MainWindow(QMainWindow):
     def set_static_page(self, index: int, title: str) -> None:
         self.navbar_title.setText(title)
         self.stack.setCurrentIndex(index)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if self.invoice_overlay is not None:
+            self.invoice_overlay.setGeometry(self.content_frame.rect())
 
     def clear_page(self, area: QScrollArea) -> QVBoxLayout:
         body = area.widget()
@@ -549,9 +645,13 @@ class MainWindow(QMainWindow):
             f"Total: {_money(totals.total)}"
         )
         edit = detail.addButton("Editar", QMessageBox.ButtonRole.ActionRole)
-        emit = detail.addButton("Emitir/Revertir", QMessageBox.ButtonRole.ActionRole)
+        emit = detail.addButton("Emitir", QMessageBox.ButtonRole.ActionRole)
+        pay = detail.addButton("Registrar cobro", QMessageBox.ButtonRole.ActionRole)
+        email = detail.addButton("Enviar email", QMessageBox.ButtonRole.ActionRole)
+        verifactu = detail.addButton("Verifactu", QMessageBox.ButtonRole.ActionRole)
+        pdf = detail.addButton("PDF", QMessageBox.ButtonRole.ActionRole)
+        cancel = detail.addButton("Anular", QMessageBox.ButtonRole.DestructiveRole)
         delete = detail.addButton("Eliminar", QMessageBox.ButtonRole.DestructiveRole)
-        detail.addButton("PDF", QMessageBox.ButtonRole.ActionRole)
         detail.addButton("Cerrar", QMessageBox.ButtonRole.RejectRole)
         detail.exec()
         clicked = detail.clickedButton()
@@ -559,10 +659,18 @@ class MainWindow(QMainWindow):
             if clicked == edit:
                 self.edit_invoice(factura)
             elif clicked == emit:
-                if factura.editable:
-                    self.factura_controller.emit_factura(factura.id)
-                else:
-                    self.factura_controller.revert_to_draft(factura.id)
+                self.factura_controller.emit_factura(factura.id)
+                self.render_invoices()
+            elif clicked == pay:
+                self.register_payment(factura)
+            elif clicked == email:
+                self.send_invoice_email(factura)
+            elif clicked == verifactu:
+                self.register_verifactu(factura)
+            elif clicked == pdf:
+                self.generate_pdf(factura)
+            elif clicked == cancel:
+                self.factura_controller.cancel_factura(factura.id)
                 self.render_invoices()
             elif clicked == delete:
                 self.factura_controller.delete_factura(factura.id)
@@ -571,15 +679,67 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Acción no disponible", str(exc))
 
     def new_invoice(self) -> None:
-        dialog = InvoiceFormDialog(self, self.factura_controller)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.navigation.setCurrentRow(1)
-            self.render_invoices()
+        self.open_invoice_overlay()
 
     def edit_invoice(self, factura: Factura) -> None:
-        dialog = InvoiceFormDialog(self, self.factura_controller, factura)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.render_invoices()
+        self.open_invoice_overlay(factura)
+
+    def open_invoice_overlay(self, factura: Factura | None = None) -> None:
+        self.close_invoice_overlay()
+        panel = InvoiceFormPanel(
+            self.content_frame,
+            self.factura_controller,
+            on_close=self.close_invoice_overlay,
+            on_saved=self.on_invoice_saved,
+            factura=factura,
+        )
+        self.invoice_overlay = ModalOverlay(self.content_frame, panel)
+        self.invoice_overlay.setGeometry(self.content_frame.rect())
+        self.invoice_overlay.show()
+        self.invoice_overlay.raise_()
+
+    def close_invoice_overlay(self) -> None:
+        if self.invoice_overlay is None:
+            return
+        self.invoice_overlay.hide()
+        self.invoice_overlay.deleteLater()
+        self.invoice_overlay = None
+
+    def on_invoice_saved(self) -> None:
+        self.navigation.setCurrentRow(1)
+        self.render_invoices()
+
+    def register_payment(self, factura: Factura) -> None:
+        totals = calculate_invoice(factura.lineas, amount_paid=factura.importe_pagado)
+        amount, ok = QInputDialog.getDouble(
+            self,
+            "Registrar cobro",
+            f"Importe cobrado acumulado. Pendiente actual: {_money(totals.importe_pendiente)}",
+            float(totals.total),
+            0,
+            float(totals.total),
+            2,
+        )
+        if not ok:
+            return
+        self.factura_controller.register_payment(factura.id, Decimal(str(amount)))
+        self.render_invoices()
+
+    def generate_pdf(self, factura: Factura) -> Path:
+        path = generate_invoice_pdf(factura, Path.cwd() / "exports" / "pdf")
+        QMessageBox.information(self, "PDF generado", f"Archivo generado:\n{path}")
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+        return path
+
+    def send_invoice_email(self, factura: Factura) -> None:
+        path = generate_invoice_pdf(factura, Path.cwd() / "exports" / "pdf")
+        self.email_service.send_invoice(factura, path)
+        QMessageBox.information(self, "Email enviado", f"Factura enviada a {factura.cliente_email}.")
+
+    def register_verifactu(self, factura: Factura) -> None:
+        result = self.verifactu_service.create(factura)
+        self.factura_controller.attach_verifactu_result(factura.id, result.uuid, result.url, result.qr)
+        QMessageBox.information(self, "Verifactu", "Factura registrada en Verifactu.")
 
     def show_import(self) -> None:
         self.navbar_title.setText("Importar Factura")
@@ -601,13 +761,18 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, "Importar factura", str(Path.home()), file_filter)
         if not path:
             return
-        name = Path(path).stem.replace("_", " ").replace("-", " ").title()
+        draft = self.ocr_service.prepare_import(path)
         self.factura_controller.create_factura(
-            cliente_nombre=name or "Cliente importado",
+            cliente_nombre=draft.cliente_nombre,
             fecha=date.today(),
-            lineas=[LineaFactura(f"Importado desde {Path(path).name}", Decimal("1"), Decimal("100.00"))],
+            lineas=[LineaFactura(draft.descripcion, Decimal("1"), Decimal("0.00"))],
+            notas=f"OCR pendiente. Archivo origen: {draft.source_path}",
         )
-        QMessageBox.information(self, "Importación preparada", "Se ha creado un borrador para revisar.")
+        QMessageBox.information(
+            self,
+            "Importacion preparada",
+            "Se ha creado un borrador revisable. El OCR real queda pendiente de implementar.",
+        )
         self.navigation.setCurrentRow(1)
 
     def show_voice(self) -> None:
@@ -656,162 +821,229 @@ class MainWindow(QMainWindow):
 
 
 APP_STYLESHEET = """
-QMainWindow, QWidget {
-    background: #0f0f1a;
-    color: #f0f0f5;
+QMainWindow {
+    background: #eef0fb;
+}
+QWidget {
+    background: transparent;
+    color: #1e2445;
     font-family: "Segoe UI", Arial, sans-serif;
     font-size: 14px;
 }
 QFrame#sidebar {
-    background: #1a1a2e;
-    border-right: 1px solid #2d2d50;
+    background: #20295a;
+    border-right: 1px solid #cfd5f5;
     min-width: 260px;
     max-width: 260px;
 }
 QLabel#logo {
-    color: #a5b4fc;
-    font-size: 23px;
+    color: #f6f4ff;
+    font-size: 30px;
     font-weight: 800;
-    padding: 8px 0 20px 0;
+    padding: 10px 2px 6px 2px;
+}
+QLabel#sidebarSummary {
+    color: #e3e7ff;
+    font-size: 13px;
+    line-height: 1.4;
+    padding: 0 2px 14px 2px;
 }
 QLabel#sideSection {
-    color: #6b6b8d;
+    color: #d9defe;
     font-size: 11px;
     font-weight: 700;
-    padding: 14px 10px 4px 10px;
+    padding: 12px 8px 6px 8px;
+    letter-spacing: 0.12em;
 }
 QListWidget#navigation {
     background: transparent;
     border: none;
-    color: #a0a0c0;
+    color: #f5f7ff;
     outline: none;
 }
 QListWidget#navigation::item {
-    padding: 12px 14px;
-    border-radius: 10px;
-    margin: 3px 0;
+    padding: 14px 18px;
+    border-radius: 14px;
+    margin: 4px 0;
+    font-weight: 600;
 }
 QListWidget#navigation::item:selected {
-    background: rgba(99, 102, 241, 0.16);
-    color: #818cf8;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #6f5ef1, stop:1 #4b63eb);
+    color: #ffffff;
 }
 QListWidget#navigation::item:hover {
-    background: #2a2a4a;
-    color: #f0f0f5;
+    background: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
 }
-QFrame#content, QScrollArea, QWidget#page {
-    background: #0f0f1a;
+QFrame#content, QScrollArea, QWidget#page, QStackedWidget {
+    background: #eef0fb;
 }
 QFrame#navbar {
-    background: rgba(15, 15, 26, 0.92);
-    border-bottom: 1px solid #2d2d50;
-    min-height: 64px;
-    max-height: 64px;
+    background: rgba(255, 255, 255, 0.88);
+    border-bottom: 1px solid #dfe1fb;
+    min-height: 76px;
+    max-height: 76px;
 }
 QLabel#navbarTitle {
-    font-size: 18px;
+    font-size: 22px;
     font-weight: 700;
+    color: #493ec2;
 }
 QLabel#viewTitle {
-    font-size: 30px;
+    font-size: 34px;
     font-weight: 800;
+    color: #202858;
 }
 QLabel#viewSubtitle {
-    color: #a0a0c0;
+    color: #72779a;
+    font-size: 15px;
 }
 QFrame#panel, QFrame#statCard {
-    background: #1a1a2e;
-    border: 1px solid #2d2d50;
-    border-radius: 14px;
+    background: #ffffff;
+    border: 1px solid #e0e1fb;
+    border-radius: 20px;
+}
+QFrame#invoiceModalCard {
+    background: #f5f6ff;
+    border: 1px solid #dfe2fa;
+    border-radius: 24px;
 }
 QFrame#invoicePreview {
-    background: #ffffff;
-    color: #1a1a2e;
-    border-radius: 14px;
+    background: #f7f6ff;
+    color: #23264a;
+    border: 1px solid #e0e1fb;
+    border-radius: 20px;
 }
 QLabel#previewText {
-    color: #1a1a2e;
+    color: #2d315a;
     font-family: "Segoe UI";
     font-size: 13px;
 }
 QLabel#dialogTitle, QLabel#sectionTitle {
-    font-size: 18px;
+    font-size: 22px;
     font-weight: 700;
+    color: #26306c;
 }
 QLabel#statValue {
-    font-size: 24px;
+    font-size: 28px;
     font-weight: 800;
+    color: #202858;
 }
 QLabel#statTitle {
-    color: #a0a0c0;
+    color: #787da3;
+    font-size: 13px;
 }
 QLabel#statIcon_purple, QLabel#statIcon_yellow, QLabel#statIcon_blue, QLabel#statIcon_green {
-    border-radius: 12px;
-    min-width: 48px;
-    min-height: 48px;
+    border-radius: 16px;
+    min-width: 54px;
+    min-height: 54px;
     qproperty-alignment: AlignCenter;
     font-weight: 800;
 }
-QLabel#statIcon_purple { background: rgba(99, 102, 241, 0.18); color: #818cf8; }
-QLabel#statIcon_yellow { background: rgba(245, 158, 11, 0.18); color: #fbbf24; }
-QLabel#statIcon_blue { background: rgba(14, 165, 233, 0.18); color: #38bdf8; }
-QLabel#statIcon_green { background: rgba(16, 185, 129, 0.18); color: #34d399; }
+QLabel#statIcon_purple { background: #ece9ff; color: #5747d9; }
+QLabel#statIcon_yellow { background: #fff3d8; color: #b7791f; }
+QLabel#statIcon_blue { background: #e4ecff; color: #3658dd; }
+QLabel#statIcon_green { background: #ddf8ea; color: #1a8e60; }
 QLineEdit, QDateEdit, QComboBox, QPlainTextEdit {
-    background: #1e1e35;
-    border: 1px solid #2d2d50;
-    border-radius: 10px;
-    color: #f0f0f5;
-    padding: 9px 12px;
+    background: #ffffff;
+    border: 1px solid #d8dbfa;
+    border-radius: 12px;
+    color: #202858;
+    padding: 10px 12px;
+    selection-background-color: #5747d9;
 }
 QLineEdit#pillSearch {
-    border-radius: 18px;
-    min-width: 240px;
+    border-radius: 22px;
+    min-width: 300px;
+    min-height: 24px;
+    padding-left: 16px;
+    background: #ffffff;
 }
 QLineEdit:focus, QDateEdit:focus, QComboBox:focus, QPlainTextEdit:focus {
-    border-color: #818cf8;
+    border: 1px solid #5747d9;
 }
 QPushButton {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #6366f1, stop:1 #4f46e5);
+    background: #5747d9;
     color: white;
     border: none;
-    border-radius: 10px;
-    padding: 10px 16px;
+    border-radius: 12px;
+    padding: 11px 18px;
     font-weight: 700;
 }
 QPushButton:hover {
-    background: #818cf8;
+    background: #6657e1;
 }
 QPushButton#accentButton {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #10b981, stop:1 #059669);
+    background: #198163;
 }
 QPushButton#warningButton {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #f59e0b, stop:1 #d97706);
-    color: #0f0f1a;
+    background: #e3e8ff;
+    color: #4b42c6;
 }
 QPushButton#ghostButton, QPushButton#sideButton, QPushButton#filterButton {
-    background: transparent;
-    border: 1px solid #2d2d50;
-    color: #a0a0c0;
+    background: #ffffff;
+    border: 1px solid #d8dbfa;
+    color: #4d537a;
 }
 QPushButton#filterActive {
-    background: #6366f1;
-    border: 1px solid #6366f1;
+    background: #ece9ff;
+    border: 1px solid #d0cbff;
+    color: #4b42c6;
 }
 QTableWidget#dataTable, QTableWidget {
-    background: #1a1a2e;
-    alternate-background-color: #20203a;
-    border: 1px solid #2d2d50;
-    border-radius: 14px;
-    color: #f0f0f5;
-    gridline-color: #2d2d50;
-    selection-background-color: rgba(99, 102, 241, 0.28);
+    background: #ffffff;
+    alternate-background-color: #f8f7ff;
+    border: 1px solid #e0e1fb;
+    border-radius: 18px;
+    color: #232a52;
+    gridline-color: #ececfb;
+    selection-background-color: #ece9ff;
 }
 QHeaderView::section {
-    background: #222240;
-    color: #a0a0c0;
+    background: #f4f2ff;
+    color: #72779a;
     border: none;
-    padding: 11px 12px;
+    border-bottom: 1px solid #e0e1fb;
+    padding: 13px 12px;
     font-size: 12px;
     font-weight: 800;
+}
+QTableCornerButton::section {
+    background: #f4f2ff;
+    border: none;
+    border-bottom: 1px solid #e0e1fb;
+}
+QScrollArea {
+    border: none;
+}
+QFrame#modalOverlay {
+    background: rgba(82, 93, 150, 0.22);
+}
+QFrame#userCard {
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 18px;
+    margin-top: 8px;
+}
+QLabel#userCardTitle {
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: 700;
+}
+QLabel#userCardText {
+    color: #c7ccf2;
+    font-size: 12px;
+}
+QDialog {
+    background: #eef0fb;
+}
+QDialog QFrame#panel {
+    background: #ffffff;
+}
+QLabel, QCheckBox {
+    background: transparent;
+}
+QMessageBox {
+    background: #ffffff;
 }
 """

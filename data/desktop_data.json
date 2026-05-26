@@ -1,0 +1,399 @@
+{
+  "clientes": [
+    {
+      "id": "38",
+      "nombre": "None",
+      "email": "None",
+      "telefono": "None",
+      "nif": "None",
+      "direccion": ", , , ",
+      "activo": true,
+      "correo_electronico": "None",
+      "cif_nif_nie": "None",
+      "direccion_completa": ", , , "
+    },
+    {
+      "id": "39",
+      "nombre": "Restaurante La Marina S.L.",
+      "email": "administracion@lamarina.es",
+      "telefono": "952 555 777",
+      "nif": "B90807060",
+      "direccion": "Paseo Marítimo, 5, Torremolinos, Málaga, España",
+      "activo": true,
+      "correo_electronico": "administracion@lamarina.es",
+      "cif_nif_nie": "B90807060",
+      "direccion_completa": "Paseo Marítimo, 5, Torremolinos, Málaga, España"
+    },
+    {
+      "id": "40",
+      "nombre": "Ministerio de Hacienda y Función Pública",
+      "email": "contacto@hacienda.gob.es",
+      "telefono": "913 958 000",
+      "nif": "S2811001F",
+      "direccion": "Calle Alcalá, 9, Madrid, Madrid, España",
+      "activo": true,
+      "correo_electronico": "contacto@hacienda.gob.es",
+      "cif_nif_nie": "S2811001F",
+      "direccion_completa": "Calle Alcalá, 9, Madrid, Madrid, España"
+    },
+    {
+      "id": "49",
+      "nombre": "None",
+      "email": "",
+      "telefono": "",
+      "nif": "None",
+      "direccion": ", , , ",
+      "activo": true,
+      "correo_electronico": "",
+      "cif_nif_nie": "None",
+      "direccion_completa": ", , , "
+    },
+    {
+      "id": "50",
+      "nombre": "None",
+      "email": "None",
+      "telefono": "",
+      "nif": "None",
+      "direccion": ", , , ",
+      "activo": true,
+      "correo_electronico": "None",
+      "cif_nif_nie": "None",
+      "direccion_completa": ", , , "
+    },
+    {
+      "id": "51",
+      "nombre": "None",
+      "email": "None",
+      "telefono": "",
+      "nif": "None",
+      "direccion": ", , , ",
+      "activo": true,
+      "correo_electronico": "None",
+      "cif_nif_nie": "None",
+      "direccion_completa": ", , , "
+    },
+    {
+      "id": "37",
+      "nombre": "telefonica",
+      "email": "facturacion@telefonica.com",
+      "telefono": "913 128 000",
+      "nif": "A28015865",
+      "direccion": "Gran Vía, 28, Madrid, Madrid, España",
+      "activo": true,
+      "correo_electronico": "facturacion@telefonica.com",
+      "cif_nif_nie": "A28015865",
+      "direccion_completa": "Gran Vía, 28, Madrid, Madrid, España"
+    },
+    {
+      "id": "52",
+      "nombre": "None",
+      "email": "facturacionarrobatelefónica.com",
+      "telefono": "91312800",
+      "nif": "None",
+      "direccion": "Gran Vía E28 de Madrid, , , ",
+      "activo": true,
+      "correo_electronico": "facturacionarrobatelefónica.com",
+      "cif_nif_nie": "None",
+      "direccion_completa": "Gran Vía E28 de Madrid, , , "
+    },
+    {
+      "id": "53",
+      "nombre": "None",
+      "email": "None",
+      "telefono": "None",
+      "nif": "None",
+      "direccion": ", , , ",
+      "activo": true,
+      "correo_electronico": "None",
+      "cif_nif_nie": "None",
+      "direccion_completa": ", , , "
+    },
+    {
+      "id": "54",
+      "nombre": "None",
+      "email": "None",
+      "telefono": "697687943",
+      "nif": "None",
+      "direccion": ", , , ",
+      "activo": true,
+      "correo_electronico": "None",
+      "cif_nif_nie": "None",
+      "direccion_completa": ", , , "
+    },
+    {
+      "id": "55",
+      "nombre": "None",
+      "email": "None",
+      "telefono": "None",
+      "nif": "None",
+      "direccion": ", , , ",
+      "activo": true,
+      "correo_electronico": "None",
+      "cif_nif_nie": "None",
+      "direccion_completa": ", , , "
+    },
+    {
+      "id": "56",
+      "nombre": "None",
+      "email": "None",
+      "telefono": "None",
+      "nif": "None",
+      "direccion": ", , , ",
+      "activo": true,
+      "correo_electronico": "None",
+      "cif_nif_nie": "None",
+      "direccion_completa": ", , , "
+    },
+    {
+      "id": "57",
+      "nombre": "None",
+      "email": "",
+      "telefono": "",
+      "nif": "None",
+      "direccion": ", , , ",
+      "activo": true,
+      "correo_electronico": "",
+      "cif_nif_nie": "None",
+      "direccion_completa": ", , , "
+    },
+    {
+      "id": "58",
+      "nombre": "None",
+      "email": "",
+      "telefono": "",
+      "nif": "None",
+      "direccion": ", , , ",
+      "activo": true,
+      "correo_electronico": "",
+      "cif_nif_nie": "None",
+      "direccion_completa": ", , , "
+    },
+    {
+      "id": "59",
+      "nombre": "None",
+      "email": "",
+      "telefono": "",
+      "nif": "None",
+      "direccion": "Polígono de Santa Ana, , , ",
+      "activo": true,
+      "correo_electronico": "",
+      "cif_nif_nie": "None",
+      "direccion_completa": "Polígono de Santa Ana, , , "
+    },
+    {
+      "id": "60",
+      "nombre": "None",
+      "email": "",
+      "telefono": "",
+      "nif": "None",
+      "direccion": "Polígono de Santa Ana, , , ",
+      "activo": true,
+      "correo_electronico": "",
+      "cif_nif_nie": "None",
+      "direccion_completa": "Polígono de Santa Ana, , , "
+    },
+    {
+      "id": "61",
+      "nombre": "None",
+      "email": "",
+      "telefono": "",
+      "nif": "None",
+      "direccion": "Polígono de Santa Ana, , , ",
+      "activo": true,
+      "correo_electronico": "",
+      "cif_nif_nie": "None",
+      "direccion_completa": "Polígono de Santa Ana, , , "
+    },
+    {
+      "id": "62",
+      "nombre": "None",
+      "email": "",
+      "telefono": "",
+      "nif": "None",
+      "direccion": "Polígono de Santa Ana, , , ",
+      "activo": true,
+      "correo_electronico": "",
+      "cif_nif_nie": "None",
+      "direccion_completa": "Polígono de Santa Ana, , , "
+    },
+    {
+      "id": "63",
+      "nombre": "None",
+      "email": "",
+      "telefono": "",
+      "nif": "None",
+      "direccion": ", , , ",
+      "activo": true,
+      "correo_electronico": "",
+      "cif_nif_nie": "None",
+      "direccion_completa": ", , , "
+    },
+    {
+      "id": "64",
+      "nombre": "None",
+      "email": "",
+      "telefono": "",
+      "nif": "None",
+      "direccion": "Polígono de Santa Ana, , , ",
+      "activo": true,
+      "correo_electronico": "",
+      "cif_nif_nie": "None",
+      "direccion_completa": "Polígono de Santa Ana, , , "
+    },
+    {
+      "id": "65",
+      "nombre": "None",
+      "email": "",
+      "telefono": "",
+      "nif": "None",
+      "direccion": "Polígono de Santa Ana, , , ",
+      "activo": true,
+      "correo_electronico": "",
+      "cif_nif_nie": "None",
+      "direccion_completa": "Polígono de Santa Ana, , , "
+    },
+    {
+      "id": "66",
+      "nombre": "None",
+      "email": "",
+      "telefono": "",
+      "nif": "None",
+      "direccion": "Polígono de Santa Ana, , , ",
+      "activo": true,
+      "correo_electronico": "",
+      "cif_nif_nie": "None",
+      "direccion_completa": "Polígono de Santa Ana, , , "
+    },
+    {
+      "id": "67",
+      "nombre": "Aguachirris Panadería Polígono de Santa Ana",
+      "email": "",
+      "telefono": "",
+      "nif": "478235F",
+      "direccion": ", , , ",
+      "activo": true,
+      "correo_electronico": "",
+      "cif_nif_nie": "478235F",
+      "direccion_completa": ", , , "
+    },
+    {
+      "id": "68",
+      "nombre": "Telefónica",
+      "email": "",
+      "telefono": "",
+      "nif": "",
+      "direccion": ", , , ",
+      "activo": true,
+      "correo_electronico": "",
+      "cif_nif_nie": "",
+      "direccion_completa": ", , , "
+    }
+  ],
+  "productos": [
+    {
+      "id": "1",
+      "nombre": "Diseño web corporativo",
+      "descripcion": "Servicio de diseño y maquetación inicial",
+      "precio": "850.00",
+      "tipo": "SERVICIO",
+      "categoria": "Diseño",
+      "activo": true
+    },
+    {
+      "id": "2",
+      "nombre": "Mantenimiento mensual",
+      "descripcion": "Soporte técnico y actualizaciones",
+      "precio": "120.00",
+      "tipo": "SERVICIO",
+      "categoria": "Soporte",
+      "activo": true
+    },
+    {
+      "id": "3",
+      "nombre": "Licencia software",
+      "descripcion": "Licencia anual de herramienta de gestión",
+      "precio": "299.00",
+      "tipo": "PRODUCTO",
+      "categoria": "Software",
+      "activo": true
+    }
+  ],
+  "facturas": [
+    {
+      "id": "1",
+      "numero": "FAC-2026-0001",
+      "cliente_nombre": "Clínica Norte",
+      "fecha": "2026-05-02",
+      "estado": "PAGADA",
+      "cliente_id": "1",
+      "lineas": [
+        {
+          "descripcion": "Diseño web corporativo",
+          "cantidad": "1",
+          "precio_unitario": "850.00",
+          "iva": "0.21"
+        },
+        {
+          "descripcion": "Licencia software",
+          "cantidad": "1",
+          "precio_unitario": "299.00",
+          "iva": "0.21"
+        }
+      ],
+      "importe_pagado": "1390.29",
+      "cliente_email": "administracion@clinicanorte.es",
+      "fecha_vencimiento": "2026-05-17",
+      "categoria": "Diseño",
+      "proyecto": "Portal corporativo",
+      "observaciones": "Proyecto inicial entregado.",
+      "adjuntos": []
+    },
+    {
+      "id": "2",
+      "numero": "FAC-2026-0002",
+      "cliente_nombre": "Arquitectura Rivas",
+      "fecha": "2026-05-07",
+      "estado": "PARCIALMENTE_PAGADA",
+      "cliente_id": "2",
+      "lineas": [
+        {
+          "descripcion": "Mantenimiento mensual",
+          "cantidad": "6",
+          "precio_unitario": "120.00",
+          "iva": "0.21"
+        }
+      ],
+      "importe_pagado": "300.00",
+      "cliente_email": "facturacion@rivas.es",
+      "fecha_vencimiento": "2026-05-30",
+      "categoria": "Soporte",
+      "proyecto": "Mantenimiento 2026",
+      "observaciones": "",
+      "adjuntos": []
+    },
+    {
+      "id": "3",
+      "numero": "BOR-2026-0003",
+      "cliente_nombre": "Talleres Centro",
+      "fecha": "2026-05-10",
+      "estado": "BORRADOR",
+      "cliente_id": "3",
+      "lineas": [
+        {
+          "descripcion": "Licencia software",
+          "cantidad": "2",
+          "precio_unitario": "299.00",
+          "iva": "0.21"
+        }
+      ],
+      "importe_pagado": "0.00",
+      "cliente_email": "compras@tallerescentro.es",
+      "fecha_vencimiento": "2026-05-25",
+      "categoria": "Software",
+      "proyecto": "Implantación",
+      "observaciones": "",
+      "adjuntos": []
+    }
+  ],
+  "audit_logs": []
+}
