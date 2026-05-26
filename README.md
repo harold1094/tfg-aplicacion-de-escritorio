@@ -297,6 +297,22 @@ pip install -r requirements.txt
 
 ## Ejecución
 
+### Windows
+
+Desde PowerShell, lanza la aplicación con un único comando:
+
+```powershell
+.\iniciar.bat
+```
+
+También puedes seguir arrancándola de forma directa si prefieres dejar la consola ocupada:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.main
+```
+
+### macOS / Linux
+
 ```bash
 python -m app.main
 ```

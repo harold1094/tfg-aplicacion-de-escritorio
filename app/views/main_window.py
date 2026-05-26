@@ -5,9 +5,10 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
+import traceback
 from typing import Callable
 
-from PySide6.QtCore import QDate, Qt, QUrl
+from PySide6.QtCore import QDate, QTimer, Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -371,8 +372,8 @@ class MainWindow(QMainWindow):
             ("Facturas", self.show_invoices),
             ("Importar Factura", self.show_import),
             ("Factura por Voz", self.show_voice),
-            ("Clientes", lambda: self.set_static_page(4, "Clientes")),
-            ("Productos", lambda: self.set_static_page(5, "Productos")),
+            ("Clientes", self.show_clients),
+            ("Productos", self.show_products),
         ]
         for label, _ in self.routes:
             self.navigation.addItem(QListWidgetItem(label))
@@ -426,8 +427,12 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.invoices_page)
         self.stack.addWidget(self.import_page)
         self.stack.addWidget(self.voice_page)
-        self.stack.addWidget(ClientesView(self.cliente_controller))
-        self.stack.addWidget(ProductosView(self.producto_controller))
+        self.clients_placeholder = self._placeholder("Clientes")
+        self.products_placeholder = self._placeholder("Productos")
+        self.stack.addWidget(self.clients_placeholder)
+        self.stack.addWidget(self.products_placeholder)
+        self.clients_view: ClientesView | None = None
+        self.products_view: ProductosView | None = None
 
         content_layout.addWidget(navbar)
         content_layout.addWidget(self.stack, 1)
@@ -435,8 +440,30 @@ class MainWindow(QMainWindow):
         shell.addWidget(content, 1)
         self.setCentralWidget(central)
         self.setStyleSheet(APP_STYLESHEET)
+        self._render_startup_placeholder()
+        QTimer.singleShot(0, self._load_initial_view)
 
-        self.navigation.setCurrentRow(0)
+    def _render_startup_placeholder(self) -> None:
+        self.navbar_title.setText("Dashboard")
+        self.stack.setCurrentWidget(self.dashboard_page)
+        layout = self.clear_page(self.dashboard_page)
+        self.page_header(
+            layout,
+            "Abriendo aplicación",
+            "Cargando datos iniciales y preparando el escritorio.",
+        )
+        panel = QFrame()
+        panel.setObjectName("panel")
+        panel_layout = QVBoxLayout(panel)
+        panel_layout.addWidget(QLabel("La ventana ya está abierta. Si Supabase tarda en responder, la carga inicial puede tardar unos segundos."))
+        layout.addWidget(panel)
+        layout.addStretch(1)
+
+    def _load_initial_view(self) -> None:
+        try:
+            self.navigation.setCurrentRow(0)
+        except Exception as exc:
+            self._report_runtime_error("No se pudo cargar el dashboard inicial.", exc)
 
     def _scroll_page(self) -> QScrollArea:
         area = QScrollArea()
@@ -454,6 +481,10 @@ class MainWindow(QMainWindow):
         label = QLabel(title)
         label.setObjectName("viewTitle")
         layout.addWidget(label)
+        subtitle = QLabel("Cargando módulo...")
+        subtitle.setObjectName("viewSubtitle")
+        layout.addWidget(subtitle)
+        layout.addStretch(1)
         return widget
 
     def _side_label(self, text: str) -> QLabel:
@@ -464,7 +495,14 @@ class MainWindow(QMainWindow):
     def handle_nav(self, row: int) -> None:
         if row < 0:
             return
-        self.routes[row][1]()
+        try:
+            self.routes[row][1]()
+        except Exception as exc:
+            self._report_runtime_error("No se pudo abrir la sección seleccionada.", exc)
+            self.navigation.blockSignals(True)
+            self.navigation.setCurrentRow(0)
+            self.navigation.blockSignals(False)
+            self.show_dashboard()
 
     def on_global_search(self, text: str) -> None:
         self.current_search = text
@@ -474,6 +512,44 @@ class MainWindow(QMainWindow):
     def set_static_page(self, index: int, title: str) -> None:
         self.navbar_title.setText(title)
         self.stack.setCurrentIndex(index)
+
+    def show_clients(self) -> None:
+        self.navbar_title.setText("Clientes")
+        if self.clients_view is None:
+            try:
+                self.clients_view = ClientesView(self.cliente_controller)
+                self.stack.removeWidget(self.clients_placeholder)
+                self.clients_placeholder.deleteLater()
+                self.stack.insertWidget(4, self.clients_view)
+            except Exception as exc:
+                self._report_runtime_error("No se pudo cargar el módulo de clientes.", exc)
+                self.stack.setCurrentWidget(self.clients_placeholder)
+                return
+        self.stack.setCurrentWidget(self.clients_view)
+
+    def show_products(self) -> None:
+        self.navbar_title.setText("Productos")
+        if self.products_view is None:
+            try:
+                self.products_view = ProductosView(self.producto_controller)
+                self.stack.removeWidget(self.products_placeholder)
+                self.products_placeholder.deleteLater()
+                self.stack.insertWidget(5, self.products_view)
+            except Exception as exc:
+                self._report_runtime_error("No se pudo cargar el módulo de productos.", exc)
+                self.stack.setCurrentWidget(self.products_placeholder)
+                return
+        self.stack.setCurrentWidget(self.products_view)
+
+    def _report_runtime_error(self, message: str, exc: Exception) -> None:
+        log_path = Path.cwd() / "desktop_runtime_error.log"
+        details = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        log_path.write_text(details, encoding="utf-8")
+        QMessageBox.critical(
+            self,
+            "Error en la aplicación",
+            f"{message}\n\n{exc}\n\nSe ha guardado un log en:\n{log_path}",
+        )
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
