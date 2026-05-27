@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
     QFormLayout,
     QFrame,
-    QGridLayout,
     QHeaderView,
     QHBoxLayout,
     QLabel,
@@ -70,152 +70,100 @@ class ClientesView(QWidget):
     def __init__(self, controller: ClienteController) -> None:
         super().__init__()
         self.controller = controller
-        self._card_columns = 3
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 18, 18, 18)
-        layout.setSpacing(14)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
 
         title = QLabel("Clientes")
         title.setObjectName("viewTitle")
         subtitle = QLabel("Consulta inicial de clientes. Las altas se activarán cuando el esquema de Supabase esté validado.")
         subtitle.setObjectName("viewSubtitle")
 
-        toolbar = QHBoxLayout()
+        toolbar_panel = QFrame()
+        toolbar_panel.setObjectName("clientsToolbar")
+        toolbar = QHBoxLayout(toolbar_panel)
+        toolbar.setContentsMargins(14, 14, 14, 14)
+        toolbar.setSpacing(12)
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Buscar cliente")
+        self.search_input.setObjectName("clientsSearch")
+        self.search_input.setPlaceholderText("Buscar por cliente, NIF, email o telefono")
         self.search_input.textChanged.connect(self.refresh_data)
 
         new_button = QPushButton("Nuevo cliente")
+        new_button.setObjectName("primaryButton")
         new_button.clicked.connect(self.new_cliente)
 
         toolbar.addWidget(self.search_input, 1)
         toolbar.addWidget(new_button)
 
-        self.cards_grid = QGridLayout()
-        self.cards_grid.setHorizontalSpacing(16)
-        self.cards_grid.setVerticalSpacing(16)
-
-        self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(["Nombre", "Email", "Teléfono", "NIF", "Dirección"])
+        self.table = QTableWidget(0, 6)
+        self.table.setObjectName("clientsTable")
+        self.table.setHorizontalHeaderLabels(["Cliente", "NIF/CIF", "Email", "Telefono", "Direccion", "Editar"])
         self.table.verticalHeader().setVisible(False)
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setShowGrid(False)
         self.table.setWordWrap(False)
+        self.table.setMinimumHeight(420)
         self.table.cellDoubleClicked.connect(self.edit_cliente)
         header = self.table.horizontalHeader()
-        header.setMinimumSectionSize(110)
+        header.setMinimumSectionSize(90)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+
+        self.empty_state = QLabel("No hay clientes para mostrar.")
+        self.empty_state.setObjectName("emptyState")
+        self.empty_state.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty_state.setMinimumHeight(220)
 
         layout.addWidget(title)
         layout.addWidget(subtitle)
-        layout.addLayout(toolbar)
-        layout.addLayout(self.cards_grid)
-        self.table.hide()
+        layout.addWidget(toolbar_panel)
+        layout.addWidget(self.table, 1)
+        layout.addWidget(self.empty_state, 1)
 
         self.refresh_data()
 
     def refresh_data(self) -> None:
-        query = self.search_input.text().strip().lower() if hasattr(self, "search_input") else ""
-        clientes = [
-            cliente
-            for cliente in self.controller.list_clientes()
-            if not query or query in cliente.nombre.lower() or query in cliente.email.lower()
-        ]
-
-        while self.cards_grid.count():
-            item = self.cards_grid.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-
-        columns = self._grid_columns()
-        for index, cliente in enumerate(clientes):
-            nombre = self._display(cliente.nombre, "Cliente sin nombre")
-            email = self._display(cliente.email)
-            telefono = self._display(cliente.telefono)
-            nif = self._display(cliente.nif)
-            direccion = self._display(cliente.direccion)
-            card = QFrame()
-            card.setObjectName("clientCard")
-            card_layout = QVBoxLayout(card)
-            card_layout.setContentsMargins(18, 18, 18, 18)
-            card_layout.setSpacing(12)
-
-            top = QHBoxLayout()
-            top.setSpacing(12)
-            initials = "".join(part[:1] for part in nombre.split()[:2]).upper() or "CL"
-            avatar = QLabel(initials)
-            avatar.setObjectName("clientAvatar")
-            name = QLabel(nombre)
-            name.setObjectName("clientName")
-            name.setWordWrap(True)
-            nif_label = QLabel(nif)
-            nif_label.setObjectName("clientMeta")
-            name_block = QVBoxLayout()
-            name_block.setSpacing(4)
-            name_block.addWidget(name)
-            name_block.addWidget(nif_label)
-            top.addWidget(avatar)
-            top.addLayout(name_block, 1)
-            arrow = QLabel(">")
-            arrow.setObjectName("clientArrow")
-            top.addWidget(arrow, 0)
-            card_layout.addLayout(top)
-
-            email_label = QLabel(f"✉  {email}")
-            email_label.setObjectName("clientDetail")
-            email_label.setWordWrap(True)
-            phone_label = QLabel(f"☎  {telefono}")
-            phone_label.setObjectName("clientDetail")
-            address_label = QLabel(f"⌖  {direccion}")
-            address_label.setObjectName("clientDetail")
-            address_label.setWordWrap(True)
-            card_layout.addWidget(email_label)
-            card_layout.addWidget(phone_label)
-            card_layout.addWidget(address_label)
-            card_layout.addStretch(1)
-
-            divider = QFrame()
-            divider.setObjectName("clientDivider")
-            card_layout.addWidget(divider)
-
-            footer = QHBoxLayout()
-            footer.setSpacing(12)
-            billed = QLabel("Facturado\n0,00 €")
-            billed.setObjectName("clientFooter")
-            invoices = QLabel("Facturas\n0")
-            invoices.setObjectName("clientFooter")
-            footer.addWidget(billed)
-            footer.addStretch(1)
-            footer.addWidget(invoices)
-            card_layout.addLayout(footer)
-
-            self.cards_grid.addWidget(card, index // columns, index % columns)
+        clientes = self.current_clientes()
 
         self.table.setRowCount(len(clientes))
         for row_index, cliente in enumerate(clientes):
-            values = [cliente.nombre, cliente.email, cliente.telefono, cliente.nif, cliente.direccion]
+            values = [
+                self._display(cliente.nombre, "Cliente sin nombre"),
+                self._display(cliente.nif),
+                self._display(cliente.email),
+                self._display(cliente.telefono),
+                self._display(cliente.direccion),
+            ]
             for column, value in enumerate(values):
-                self.table.setItem(row_index, column, QTableWidgetItem(value))
+                item = QTableWidgetItem(value)
+                if column in (1, 3):
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                else:
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+                self.table.setItem(row_index, column, item)
+            edit_button = QPushButton("Editar")
+            edit_button.setObjectName("rowEditButton")
+            edit_button.setCursor(Qt.CursorShape.PointingHandCursor)
+            edit_button.clicked.connect(lambda _checked=False, row=row_index: self.edit_cliente(row, 0))
+            self.table.setCellWidget(row_index, 5, edit_button)
+            self.table.setRowHeight(row_index, 54)
 
-        self.table.setColumnWidth(2, 130)
-        self.table.setColumnWidth(3, 130)
-
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        columns = self._grid_columns()
-        if columns != self._card_columns:
-            self._card_columns = columns
-            self.refresh_data()
-
-    def _grid_columns(self) -> int:
-        return 2 if self.width() < 1350 else 3
+        self.table.setColumnWidth(1, 130)
+        self.table.setColumnWidth(3, 120)
+        self.table.setColumnWidth(5, 92)
+        self.table.setVisible(bool(clientes))
+        self.empty_state.setVisible(not clientes)
+        if not clientes:
+            query = self.search_input.text().strip() if hasattr(self, "search_input") else ""
+            self.empty_state.setText("No hay clientes que coincidan con la busqueda." if query else "No hay clientes para mostrar.")
 
     @staticmethod
     def _display(value: str, fallback: str = "-") -> str:
@@ -229,7 +177,17 @@ class ClientesView(QWidget):
         return [
             cliente
             for cliente in self.controller.list_clientes()
-            if not query or query in cliente.nombre.lower() or query in cliente.email.lower()
+            if not query
+            or query
+            in " ".join(
+                [
+                    cliente.nombre,
+                    cliente.email,
+                    cliente.telefono,
+                    cliente.nif,
+                    cliente.direccion,
+                ]
+            ).lower()
         ]
 
     def new_cliente(self) -> None:

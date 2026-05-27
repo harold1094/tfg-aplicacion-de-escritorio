@@ -7,7 +7,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import QDate, Qt, QUrl
+from PySide6.QtCore import QDate, QSettings, Qt, QUrl
 from PySide6.QtGui import QColor, QDesktopServices, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -532,8 +532,10 @@ class MainWindow(QMainWindow):
         self.last_persistent_nav_row = 0
         self.sidebar_collapsed = False
         self.sidebar_width_expanded = 244
-        self.selected_theme_accent = "Indigo"
-        self.theme_dark_mode = False
+        self.settings = QSettings("Automalize", "Desktop")
+        saved_accent = str(self.settings.value("theme/accent", "Indigo"))
+        self.selected_theme_accent = saved_accent if saved_accent in ACCENT_THEMES else "Indigo"
+        self.theme_dark_mode = bool(self.settings.value("theme/darkMode", False, type=bool))
 
         central = QWidget()
         shell = QHBoxLayout(central)
@@ -629,10 +631,14 @@ class MainWindow(QMainWindow):
         self.global_search.setObjectName("pillSearch")
         self.global_search.textChanged.connect(self.on_global_search)
         nav_layout.addWidget(self.global_search)
-        for text, name in [("?", "topIconButton"), ("☾", "topIconButton")]:
-            button = QPushButton(text)
-            button.setObjectName(name)
-            nav_layout.addWidget(button)
+        help_button = QPushButton("?")
+        help_button.setObjectName("topIconButton")
+        nav_layout.addWidget(help_button)
+        self.dark_mode_button = QPushButton()
+        self.dark_mode_button.setObjectName("topIconButton")
+        self.dark_mode_button.setCheckable(True)
+        self.dark_mode_button.clicked.connect(self.set_theme_dark_mode)
+        nav_layout.addWidget(self.dark_mode_button)
         top_new = QPushButton("+ Nueva factura")
         top_new.setObjectName("primaryButton")
         top_new.clicked.connect(self.new_invoice)
@@ -657,7 +663,7 @@ class MainWindow(QMainWindow):
         shell.addWidget(self.sidebar)
         shell.addWidget(content, 1)
         self.setCentralWidget(central)
-        self.setStyleSheet(APP_STYLESHEET)
+        self.apply_theme(save=False)
 
         self.navigation.setCurrentRow(0)
         self._apply_sidebar_state()
@@ -753,6 +759,21 @@ class MainWindow(QMainWindow):
         label.setObjectName("sectionTitle")
         return label
 
+    def apply_theme(self, save: bool = True) -> None:
+        self.setStyleSheet(build_app_stylesheet(self.selected_theme_accent, self.theme_dark_mode))
+        if save:
+            self.settings.setValue("theme/accent", self.selected_theme_accent)
+            self.settings.setValue("theme/darkMode", self.theme_dark_mode)
+        self._sync_theme_controls()
+
+    def _sync_theme_controls(self) -> None:
+        if hasattr(self, "dark_mode_button"):
+            self.dark_mode_button.blockSignals(True)
+            self.dark_mode_button.setChecked(self.theme_dark_mode)
+            self.dark_mode_button.setText("☀" if self.theme_dark_mode else "☾")
+            self.dark_mode_button.setToolTip("Cambiar a modo claro" if self.theme_dark_mode else "Cambiar a modo oscuro")
+            self.dark_mode_button.blockSignals(False)
+
     def show_theme_visual(self) -> None:
         self.navbar_title.setText("Tema visual")
         self.stack.setCurrentWidget(self.theme_page)
@@ -771,14 +792,11 @@ class MainWindow(QMainWindow):
 
         accents = QHBoxLayout()
         accents.setSpacing(10)
-        for name, color in [
-            ("Indigo", "#6256f4"),
-            ("Esmeralda", "#1ea97c"),
-            ("Ambar", "#e4a014"),
-            ("Coral", "#e65c74"),
-            ("Cielo", "#3c8dde"),
-            ("Grafito", "#5d6284"),
-        ]:
+        theme_surface = "#1b2033" if self.theme_dark_mode else "#ffffff"
+        theme_text = "#f4f7ff" if self.theme_dark_mode else "#181a2f"
+        theme_border = "#31384f" if self.theme_dark_mode else "#e2e5f1"
+        for name, accent in ACCENT_THEMES.items():
+            color = accent["primary"]
             button = QPushButton(name + (" (default)" if name == "Indigo" else ""))
             button.setMinimumSize(168, 98)
             button.setCheckable(True)
@@ -787,9 +805,9 @@ class MainWindow(QMainWindow):
             button.clicked.connect(lambda checked=False, selected=name: self.select_theme_accent(selected))
             button.setStyleSheet(
                 "QPushButton {"
-                f"border: 1px solid {'#6256f4' if name == self.selected_theme_accent else '#e2e5f1'};"
+                f"border: 1px solid {color if name == self.selected_theme_accent else theme_border};"
                 "border-radius: 8px; padding: 54px 12px 12px 12px; text-align: left; font-weight: 700;"
-                "background: #ffffff; color: #181a2f;"
+                f"background: {theme_surface}; color: {theme_text};"
                 "}"
                 f"QPushButton {{ background-image: none; }}"
             )
@@ -824,12 +842,17 @@ class MainWindow(QMainWindow):
         layout.addStretch(1)
 
     def select_theme_accent(self, accent: str) -> None:
+        if accent not in ACCENT_THEMES:
+            return
         self.selected_theme_accent = accent
+        self.apply_theme()
         self.show_theme_visual()
 
     def set_theme_dark_mode(self, enabled: bool) -> None:
         self.theme_dark_mode = enabled
-        self.show_theme_visual()
+        self.apply_theme()
+        if self.stack.currentWidget() is self.theme_page:
+            self.show_theme_visual()
 
     def toggle_sidebar(self) -> None:
         self.sidebar_collapsed = not self.sidebar_collapsed
@@ -1344,6 +1367,231 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Error de exportación", str(exc))
             return
         QMessageBox.information(self, "Exportación completada", "Archivo generado correctamente.")
+
+ACCENT_THEMES = {
+    "Indigo": {
+        "primary": "#6256f4",
+        "hover": "#7469ff",
+        "soft": "#ecebff",
+        "border": "#cfcaff",
+        "text": "#4b42c6",
+    },
+    "Esmeralda": {
+        "primary": "#1ea97c",
+        "hover": "#26bd8d",
+        "soft": "#ddf8ef",
+        "border": "#9be8cf",
+        "text": "#157b5c",
+    },
+    "Ambar": {
+        "primary": "#e4a014",
+        "hover": "#f0ae24",
+        "soft": "#fff2d4",
+        "border": "#f4d184",
+        "text": "#9a6800",
+    },
+    "Coral": {
+        "primary": "#e65c74",
+        "hover": "#f06f85",
+        "soft": "#fff0f3",
+        "border": "#f5bbc6",
+        "text": "#b83e55",
+    },
+    "Cielo": {
+        "primary": "#3c8dde",
+        "hover": "#4d9ded",
+        "soft": "#e8f3ff",
+        "border": "#b7d8f7",
+        "text": "#246fb7",
+    },
+    "Grafito": {
+        "primary": "#5d6284",
+        "hover": "#707697",
+        "soft": "#eef0f7",
+        "border": "#c9cedd",
+        "text": "#464b69",
+    },
+}
+
+
+def build_app_stylesheet(accent_name: str, dark_mode: bool) -> str:
+    accent = ACCENT_THEMES.get(accent_name, ACCENT_THEMES["Indigo"])
+    primary = accent["primary"]
+    hover = accent["hover"]
+    soft = accent["soft"]
+    border = accent["border"]
+    accent_text = accent["text"]
+    common_overrides = f"""
+QLabel#brandAvatar, QLabel#clientAvatar, QFrame#chartBarStrong {{
+    background: {primary};
+    color: #ffffff;
+}}
+QListWidget#navigation::item:selected {{
+    background: {primary};
+    color: #ffffff;
+}}
+QLineEdit:focus, QDateEdit:focus, QComboBox:focus, QPlainTextEdit:focus {{
+    border: 1px solid {primary};
+}}
+QPushButton, QPushButton#primaryButton {{
+    background: {primary};
+    color: #ffffff;
+}}
+QPushButton:hover, QPushButton#primaryButton:hover {{
+    background: {hover};
+}}
+QPushButton#filterActive, QPushButton#warningButton {{
+    background: {soft};
+    border: 1px solid {border};
+    color: {accent_text};
+}}
+QFrame#quickActionCard:hover, QFrame#importCard:hover {{
+    border: 1px solid {border};
+}}
+QLabel#voiceRedirectHandle, QLabel#uploadIcon, QLabel#voicePulse {{
+    color: {primary};
+}}
+QLabel#uploadIcon, QLabel#voicePulse, QLabel#statIcon_purple, QLabel#quickIcon_purple {{
+    background: {soft};
+    color: {primary};
+}}
+QAbstractItemView {{
+    selection-background-color: {soft};
+}}
+QTableWidget::item:selected {{
+    background: {soft};
+    color: {accent_text};
+}}
+QCheckBox#themeDarkToggle::indicator:checked {{
+    background: {primary};
+    border: 1px solid {primary};
+}}
+QPushButton#rowEditButton {{
+    background: transparent;
+    border: 1px solid {border};
+    color: {accent_text};
+    padding: 6px 10px;
+}}
+QPushButton#rowEditButton:hover {{
+    background: {soft};
+}}
+"""
+    if not dark_mode:
+        return APP_STYLESHEET + common_overrides + """
+QFrame#clientsToolbar {
+    background: #ffffff;
+    border: 1px solid #e2e5f1;
+    border-radius: 8px;
+}
+QLabel#emptyState {
+    background: #ffffff;
+    border: 1px solid #e2e5f1;
+    border-radius: 8px;
+    color: #747894;
+    font-size: 15px;
+}
+"""
+
+    dark_overrides = f"""
+QMainWindow {{
+    background: #101421;
+}}
+QWidget {{
+    color: #eef2ff;
+}}
+QFrame#content, QScrollArea, QWidget#page, QStackedWidget, QDialog {{
+    background: #101421;
+}}
+QFrame#sidebar {{
+    background: #0a0d18;
+    border-right: 1px solid #20263a;
+}}
+QFrame#navbar, QFrame#panel, QFrame#statCard, QFrame#invoiceModalCard,
+QFrame#voiceRedirectCard, QFrame#quickActionCard, QFrame#importCard,
+QFrame#clientsToolbar {{
+    background: #171c2b;
+    border: 1px solid #2c344b;
+}}
+QLabel#navbarTitle, QLabel#viewTitle, QLabel#dialogTitle, QLabel#voiceRedirectTitle,
+QLabel#sectionTitle, QLabel#statValue, QLabel#quickTitle, QLabel#clientName,
+QLabel#activityItem, QLabel#recentImport, QLabel#draftLine {{
+    color: #f4f7ff;
+}}
+QLabel#viewSubtitle, QLabel#statTitle, QLabel#quickSubtitle, QLabel#barValue,
+QLabel#barMonth, QLabel#clientMeta, QLabel#clientArrow, QLabel#clientFooter,
+QLabel#sidebarSummary, QLabel#sideSection, QLabel#userCardText {{
+    color: #aab2ca;
+}}
+QLabel#clientDetail, QLabel#previewText, QLabel#transcriptBox, QLabel#suggestionChip {{
+    color: #dbe2f5;
+}}
+QLineEdit, QDateEdit, QComboBox, QPlainTextEdit {{
+    background: #111827;
+    border: 1px solid #323a52;
+    color: #eef2ff;
+    selection-background-color: {primary};
+}}
+QLineEdit#pillSearch {{
+    background: #111827;
+}}
+QLineEdit#sidebarSearch {{
+    background: #080b14;
+    color: #dfe6f8;
+    border: 1px solid #273047;
+}}
+QPushButton#navToggleButton, QPushButton#topIconButton,
+QPushButton#ghostButton, QPushButton#filterButton {{
+    background: #171c2b;
+    border: 1px solid #323a52;
+    color: #dfe6f8;
+}}
+QPushButton#navToggleButton:hover, QPushButton#topIconButton:hover,
+QPushButton#ghostButton:hover, QPushButton#filterButton:hover {{
+    background: #22293d;
+}}
+QPushButton#sideButton {{
+    background: transparent;
+    color: #dfe6f8;
+}}
+QPushButton#sideButton:hover, QListWidget#navigation::item:hover {{
+    background: #1a2032;
+}}
+QListWidget#navigation {{
+    color: #dfe6f8;
+}}
+QFrame#userCard {{
+    border-top: 1px solid #20263a;
+}}
+QTableWidget#dataTable, QTableWidget, QTableWidget#clientsTable {{
+    background: #171c2b;
+    alternate-background-color: #141a29;
+    border: 1px solid #2c344b;
+    color: #eef2ff;
+    gridline-color: #242c40;
+}}
+QHeaderView::section, QTableCornerButton::section {{
+    background: #121827;
+    color: #aab2ca;
+    border-bottom: 1px solid #2c344b;
+}}
+QFrame#invoicePreview, QLabel#transcriptBox, QLabel#suggestionChip,
+QLabel#emptyState {{
+    background: #141a29;
+    border: 1px solid #2c344b;
+    color: #dbe2f5;
+}}
+QFrame#themeDivider, QFrame#clientDivider {{
+    background: #2c344b;
+}}
+QMessageBox {{
+    background: #171c2b;
+}}
+QCheckBox#themeDarkToggle::indicator {{
+    background: #2c344b;
+    border: 1px solid #3a435c;
+}}
+"""
+    return APP_STYLESHEET + common_overrides + dark_overrides
 
 
 APP_STYLESHEET = """
