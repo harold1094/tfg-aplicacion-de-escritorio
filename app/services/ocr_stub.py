@@ -1,31 +1,10 @@
-"""Punto de integración para OCR.
-
-El OCR real queda pendiente por decisión de alcance. Este servicio mantiene el
-flujo y la interfaz preparados para que otra persona implemente la extracción.
-"""
+"""Backward-compatible import for the real OCR service."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pathlib import Path
+from app.services.ocr_service import OcrDraft, OcrService
 
 
-@dataclass(frozen=True, slots=True)
-class OcrDraft:
-    source_path: Path
-    cliente_nombre: str
-    descripcion: str
-    status: str = "pendiente_ocr"
+OcrStubService = OcrService
 
-
-class OcrStubService:
-    def prepare_import(self, file_path: str | Path) -> OcrDraft:
-        path = Path(file_path)
-        if not path.exists():
-            raise FileNotFoundError(path)
-
-        return OcrDraft(
-            source_path=path,
-            cliente_nombre=path.stem.replace("_", " ").replace("-", " ").title() or "Cliente importado",
-            descripcion=f"Importacion pendiente de OCR desde {path.name}",
-        )
+__all__ = ["OcrDraft", "OcrService", "OcrStubService"]

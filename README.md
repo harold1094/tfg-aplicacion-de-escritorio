@@ -15,7 +15,7 @@ La app permite trabajar desde escritorio con los módulos principales del sistem
 - Exportación a `CSV`, `Excel` y `XML`.
 - Generación de `PDF`.
 - Envío de factura por correo mediante `SMTP`.
-- Punto de entrada para importación/OCR, dejado preparado como flujo revisable.
+- Importación OCR de PDF o imagen para crear borradores revisables.
 - Preparación de integración con `Verifactu`.
 
 ## Stack tecnológico
@@ -61,7 +61,7 @@ Están en `app/services/` y encapsulan tareas técnicas concretas:
 - `pdf_service.py`: generación de PDF.
 - `export_csv.py`, `export_excel.py`, `export_xml.py`: exportaciones.
 - `verifactu_service.py`: integración preparada con Verifactu.
-- `ocr_stub.py`: flujo OCR pendiente, pero ya conectado a la app.
+- `ocr_service.py`: extracción OCR/PDF y parser de tickets o facturas.
 
 ### 4. Modelos
 
@@ -210,7 +210,7 @@ Esto hace que el cambio entre entorno demo y entorno real no obligue a rehacer t
 
 ### Correo
 
-`email_service.py` usa SMTP. La idea es que la factura se pueda generar y adjuntar al correo saliente desde escritorio sin depender de un servicio frontend como EmailJS.
+`email_service.py` usa SMTP. La factura se puede generar y adjuntar al correo saliente desde escritorio sin depender de un servicio frontend como EmailJS. Al emitir una factura desde el modal, la app permite enviar el email automáticamente si el cliente tiene correo y SMTP está configurado.
 
 ### Exportaciones
 
@@ -224,15 +224,17 @@ Desde la vista de facturas se puede exportar el conjunto de filas preparadas por
 
 ## OCR e importación
 
-El OCR real no está desarrollado todavía, pero el flujo sí está preparado.
+El OCR ya está integrado en el flujo de importación.
 
 Actualmente:
 
 - el usuario puede subir imagen o PDF
-- `ocr_stub.py` crea un borrador revisable
-- se informa claramente de que el OCR real queda pendiente
+- `ocr_service.py` extrae texto de PDF con `pypdf`
+- las imágenes se procesan con `pytesseract` y Tesseract OCR instalado en el sistema
+- el parser detecta proveedor, NIF/CIF, dirección, fecha, líneas, IVA y total cuando aparecen en el texto
+- se crea un borrador revisable y se abre el modal de edición
 
-Esto permite dejar integrada la entrada funcional en la app sin bloquear el resto del proyecto.
+Esto mantiene la importación dentro del flujo normal: primero se extrae, luego se revisa y finalmente se guarda o emite.
 
 ## Verifactu
 
@@ -315,7 +317,7 @@ Cobertura actual relevante:
 
 - bloqueo de edición tras emitir
 - actualización de estado al registrar cobro
-- generación de borrador a partir del flujo OCR pendiente
+- generación de borrador a partir de OCR y parser de ticket/factura
 - generación de PDF
 - validación de configuración de Verifactu
 
@@ -345,15 +347,15 @@ Ahora mismo el proyecto ya tiene:
 - modal interno para crear o editar factura
 - exportación multi-formato
 - generación de PDF
-- envío por SMTP preparado
-- OCR integrado como punto de entrada
+- envío por SMTP y opción de email automático al emitir
+- OCR integrado para PDF e imágenes
 - Verifactu preparado por servicio
 
 ## Limitaciones actuales
 
 Sigue habiendo puntos pendientes o parcialmente preparados:
 
-- el OCR real no está implementado
+- el OCR de imágenes requiere Tesseract instalado en el sistema
 - Verifactu depende de credenciales reales
 - algunas adaptaciones visuales todavía pueden requerir refinado
 - la cobertura de tests está centrada en la lógica crítica, no en toda la UI

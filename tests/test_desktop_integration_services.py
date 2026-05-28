@@ -5,7 +5,7 @@ import pytest
 
 from app.controllers.factura_controller import FacturaController
 from app.models.factura import EstadoFactura, LineaFactura
-from app.services.ocr_stub import OcrStubService
+from app.services.ocr_service import OcrService
 from app.services.pdf_service import generate_invoice_pdf
 from app.services.verifactu_service import VerifactuService
 
@@ -41,15 +41,35 @@ def test_local_invoice_payment_updates_status():
     assert paid.estado == EstadoFactura.PAGADA
 
 
-def test_ocr_stub_prepares_manual_draft(tmp_path):
-    source = tmp_path / "ticket_prueba.pdf"
-    source.write_text("pendiente", encoding="utf-8")
+def test_ocr_service_extracts_reviewable_draft_from_text(tmp_path):
+    source = tmp_path / "ticket_prueba.txt"
+    source.write_text(
+        "\n".join(
+            [
+                "CAFETERIA MIRALMONTE",
+                "C/ Mayor 1",
+                "B12345678",
+                "26/05/2026",
+                "Cafe 2 x 1,50",
+                "Tostada 3,00",
+                "IVA 10% 0,60",
+                "TOTAL 6,60",
+            ]
+        ),
+        encoding="utf-8",
+    )
 
-    draft = OcrStubService().prepare_import(source)
+    draft = OcrService().prepare_import(source)
 
-    assert draft.status == "pendiente_ocr"
-    assert draft.cliente_nombre == "Ticket Prueba"
-    assert source.name in draft.descripcion
+    assert draft.status == "ocr_extraido"
+    assert draft.cliente_nombre == "CAFETERIA MIRALMONTE"
+    assert draft.cliente_nif == "B12345678"
+    assert draft.fecha == date(2026, 5, 26)
+    assert len(draft.lineas) == 2
+    assert draft.lineas[0].descripcion == "Cafe"
+    assert draft.lineas[0].cantidad == Decimal("2")
+    assert draft.lineas[0].precio_unitario == Decimal("1.50")
+    assert draft.lineas[0].iva == Decimal("0.10")
 
 
 def test_pdf_generation_creates_file(tmp_path):
