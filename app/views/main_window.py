@@ -7,7 +7,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import QDate, Qt, QUrl
+from PySide6.QtCore import QDate, Qt, QThread, QTimer, QUrl
+from PySide6.QtCore import Signal as QtSignal
 from PySide6.QtGui import QColor, QDesktopServices, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -20,6 +21,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QFrame,
     QGridLayout,
+    QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
@@ -30,6 +32,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
+    QProgressBar,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -51,11 +54,30 @@ from app.services.export_csv import export_rows_to_csv
 from app.services.export_excel import export_rows_to_excel
 from app.services.export_xml import export_rows_to_xml
 from app.services.invoice_calculator import calculate_invoice
-from app.services.ocr_stub import OcrStubService
+from app.services.ocr_service import OcrService
 from app.services.pdf_service import generate_invoice_pdf
 from app.services.verifactu_service import VerifactuService
 from app.views.clientes_view import ClientesView
 from app.views.productos_view import ProductosView
+
+
+# ============================================================
+# OCR Worker — runs in background thread so UI stays alive
+# ============================================================
+class OcrWorker(QThread):
+    finished: QtSignal = QtSignal(object)  # emits OcrDraft
+    error: QtSignal = QtSignal(str)
+
+    def __init__(self, path: str) -> None:
+        super().__init__()
+        self.path = path
+
+    def run(self) -> None:  # noqa: D401
+        try:
+            draft = OcrService().prepare_import(self.path)
+            self.finished.emit(draft)
+        except Exception as exc:  # noqa: BLE001
+            self.error.emit(str(exc))
 
 
 def _money(value: Decimal | int | float | str) -> str:
@@ -120,12 +142,14 @@ class InvoiceFormPanel(QFrame):
         controller: FacturaController,
         on_close: Callable[[], None],
         on_saved: Callable[[], None],
+        email_service: EmailService | None = None,
         factura: Factura | None = None,
     ) -> None:
         super().__init__(parent)
         self.controller = controller
         self.on_close = on_close
         self.on_saved = on_saved
+        self.email_service = email_service
         self.factura = factura
         self.setObjectName("invoiceModalCard")
         self.setMinimumSize(860, 620)
@@ -204,6 +228,12 @@ class InvoiceFormPanel(QFrame):
         client_form.addRow("Dirección", self.address_input)
         client_form.addRow("Email", self.email_input)
         details_layout.addLayout(client_form)
+
+        self.auto_email_check = QCheckBox("Enviar email al cliente al emitir")
+        self.auto_email_check.setToolTip(
+            "Genera el PDF y envia la factura automaticamente al emitir, si SMTP esta configurado."
+        )
+        details_layout.addWidget(self.auto_email_check)
         form_layout.addWidget(details_card)
 
         lines_label = QLabel("Líneas de factura")
@@ -303,11 +333,26 @@ class InvoiceFormPanel(QFrame):
         self.client_input.textChanged.connect(self.update_preview)
         self.nif_input.textChanged.connect(self.update_preview)
         self.email_input.textChanged.connect(self.update_preview)
+        self.email_input.textChanged.connect(self.update_auto_email_state)
         self.address_input.textChanged.connect(self.update_preview)
         self.notes_input.textChanged.connect(self.update_preview)
         self.date_input.dateChanged.connect(self.update_preview)
         self.lines_table.itemChanged.connect(self.update_preview)
+        self.update_auto_email_state()
         self.update_preview()
+
+    def update_auto_email_state(self) -> None:
+        configured = self.email_service is not None and self.email_service.is_configured()
+        has_email = bool(self.email_input.text().strip())
+        self.auto_email_check.setEnabled(configured and has_email)
+        if not configured:
+            self.auto_email_check.setToolTip("Configura SMTP en .env para enviar emails automaticamente.")
+        elif not has_email:
+            self.auto_email_check.setToolTip("Indica el email del cliente para activar el envio automatico.")
+        else:
+            self.auto_email_check.setToolTip("Genera el PDF y envia la factura automaticamente al emitir.")
+        if not self.auto_email_check.isEnabled():
+            self.auto_email_check.setChecked(False)
 
     def add_line(self, line: LineaFactura | None = None) -> None:
         row = self.lines_table.rowCount()
@@ -421,10 +466,26 @@ class InvoiceFormPanel(QFrame):
                     notas=self.notes_input.toPlainText().strip(),
                 )
             if emit:
-                self.controller.emit_factura(saved.id)
+                saved = self.controller.emit_factura(saved.id)
         except Exception as exc:
             QMessageBox.critical(self, "No se pudo guardar", str(exc))
             return
+        if emit and self.auto_email_check.isChecked() and self.email_service is not None:
+            try:
+                path = generate_invoice_pdf(saved, Path.cwd() / "exports" / "pdf")
+                self.email_service.send_invoice(saved, path)
+            except Exception as exc:
+                QMessageBox.warning(
+                    self,
+                    "Factura emitida",
+                    f"La factura se emitio, pero no se pudo enviar el email:\n{exc}",
+                )
+            else:
+                QMessageBox.information(
+                    self,
+                    "Email enviado",
+                    f"Factura enviada a {saved.cliente_email}.",
+                )
         self.on_saved()
         self.close_panel()
 
@@ -524,7 +585,7 @@ class MainWindow(QMainWindow):
         self.factura_controller = FacturaController(emisor_id=emisor_id)
         self.email_service = EmailService()
         self.verifactu_service = VerifactuService()
-        self.ocr_service = OcrStubService()
+        self.ocr_service = OcrService()
         self.current_filter = "Todas"
         self.current_search = ""
         self.invoice_overlay: ModalOverlay | None = None
@@ -1123,8 +1184,7 @@ class MainWindow(QMainWindow):
             if clicked == edit:
                 self.edit_invoice(factura)
             elif clicked == emit:
-                self.factura_controller.emit_factura(factura.id)
-                self.render_invoices()
+                self.emit_invoice(factura)
             elif clicked == pay:
                 self.register_payment(factura)
             elif clicked == email:
@@ -1155,6 +1215,7 @@ class MainWindow(QMainWindow):
             self.factura_controller,
             on_close=self.close_invoice_overlay,
             on_saved=self.on_invoice_saved,
+            email_service=self.email_service,
             factura=factura,
         )
         self.invoice_overlay = ModalOverlay(self.content_frame, panel)
@@ -1216,107 +1277,454 @@ class MainWindow(QMainWindow):
         self.email_service.send_invoice(factura, path)
         QMessageBox.information(self, "Email enviado", f"Factura enviada a {factura.cliente_email}.")
 
+    def emit_invoice(self, factura: Factura) -> None:
+        emitted = self.factura_controller.emit_factura(factura.id)
+        self.render_invoices()
+        if not emitted.cliente_email or not self.email_service.is_configured():
+            return
+        answer = QMessageBox.question(
+            self,
+            "Enviar email",
+            f"Factura emitida. Quieres enviarla ahora a {emitted.cliente_email}?",
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self.send_invoice_email(emitted)
+
     def register_verifactu(self, factura: Factura) -> None:
         result = self.verifactu_service.create(factura)
         self.factura_controller.attach_verifactu_result(factura.id, result.uuid, result.url, result.qr)
         QMessageBox.information(self, "Verifactu", "Factura registrada en Verifactu.")
 
+    # ------------------------------------------------------------------
+    # Importar Factura — replica exacta de scan-qr.js (referencia)
+    # ------------------------------------------------------------------
     def show_import(self) -> None:
         self.navbar_title.setText("Importar Factura")
         self.stack.setCurrentWidget(self.import_page)
         layout = self.clear_page(self.import_page)
-        self.page_header(
-            layout,
-            "Importar Factura",
-            "QR, foto de ticket o PDF adaptado al escritorio. Procesamos los datos y creamos un borrador listo para revisar.",
+        self._ocr_worker: OcrWorker | None = None
+        self._ocr_current_source: str = ""  # "Ticket" or "PDF"
+
+        # ── Header (centrado, igual que la referencia) ──────────────────
+        header_wrapper = QWidget()
+        hw_layout = QVBoxLayout(header_wrapper)
+        hw_layout.setContentsMargins(0, 8, 0, 8)
+        hw_layout.setSpacing(6)
+        hw_layout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        h1 = QLabel("Importar Factura")
+        h1.setObjectName("importPageTitle")
+        h1.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        sub = QLabel("Importa datos de una foto de ticket o archivo PDF")
+        sub.setObjectName("importPageSub")
+        sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        hw_layout.addWidget(h1)
+        hw_layout.addWidget(sub)
+        layout.addWidget(header_wrapper)
+
+        # ── Tabs ─────────────────────────────────────────────────────────
+        tabs_frame = QFrame()
+        tabs_frame.setObjectName("scanTabBar")
+        tabs_layout = QHBoxLayout(tabs_frame)
+        tabs_layout.setContentsMargins(6, 6, 6, 6)
+        tabs_layout.setSpacing(6)
+
+        self._tab_ticket = QPushButton("📷  Foto de Ticket")
+        self._tab_ticket.setObjectName("scanTabActive")
+        self._tab_ticket.setCheckable(True)
+        self._tab_ticket.setChecked(True)
+
+        self._tab_pdf = QPushButton("📄  Archivo PDF")
+        self._tab_pdf.setObjectName("scanTab")
+        self._tab_pdf.setCheckable(True)
+        self._tab_pdf.setChecked(False)
+
+        tabs_layout.addWidget(self._tab_ticket)
+        tabs_layout.addWidget(self._tab_pdf)
+        layout.addWidget(tabs_frame)
+
+        # ── Mode stack (Ticket / PDF) ─────────────────────────────────────
+        self._mode_stack = QStackedWidget()
+
+        # — Panel Ticket —
+        ticket_page = QWidget()
+        t_layout = QVBoxLayout(ticket_page)
+        t_layout.setContentsMargins(0, 0, 0, 0)
+        t_card = QFrame()
+        t_card.setObjectName("scanCard")
+        t_card_l = QVBoxLayout(t_card)
+        t_card_l.setContentsMargins(24, 24, 24, 24)
+        t_card_l.setSpacing(12)
+        t_title = QLabel("📷  Foto de Ticket / Factura")
+        t_title.setObjectName("scanCardTitle")
+        t_desc = QLabel(
+            "Sube una foto de un ticket de compra o factura y extraeremos "
+            "los datos automáticamente mediante OCR."
         )
-        panel = QFrame()
-        panel.setObjectName("panel")
-        inner = QVBoxLayout(panel)
-        inner.setContentsMargins(18, 18, 18, 18)
-        inner.setSpacing(14)
-        header = QHBoxLayout()
-        header.setSpacing(12)
-        upload_icon = QLabel("↑")
-        upload_icon.setObjectName("uploadIcon")
-        header_text = QVBoxLayout()
-        header_text.setSpacing(4)
-        header_title = QLabel("Arrastra un archivo o elige el origen")
-        header_title.setObjectName("sectionTitle")
-        header_sub = QLabel("PNG, JPG, PDF hasta 15 MB. Tambien admitimos codigos QR VeriFactu directamente.")
-        header_sub.setObjectName("viewSubtitle")
-        header_sub.setWordWrap(True)
-        header_text.addWidget(header_title)
-        header_text.addWidget(header_sub)
-        browse = QPushButton("Examinar")
-        browse.setObjectName("primaryButton")
-        browse.setMinimumWidth(120)
-        browse.clicked.connect(lambda: self.import_file("PDF e imagenes (*.pdf *.png *.jpg *.jpeg *.webp)"))
-        header.addWidget(upload_icon)
-        header.addLayout(header_text, 1)
-        header.addWidget(browse, 0, Qt.AlignmentFlag.AlignTop)
-        inner.addLayout(header)
+        t_desc.setObjectName("scanCardDesc")
+        t_desc.setWordWrap(True)
+        t_card_l.addWidget(t_title)
+        t_card_l.addWidget(t_desc)
 
-        cards = QGridLayout()
-        cards.setHorizontalSpacing(10)
-        cards.setVerticalSpacing(10)
-        import_sources = [
-            ("▦", "Subir imagen QR", "Lee facturas en formato VeriFactu / Factura-e directamente del codigo.", "purple", "Imágenes (*.png *.jpg *.jpeg *.webp)"),
-            ("▧", "Subir ticket", "Foto del ticket: extraemos importes, conceptos y NIF cuando exista.", "orange", "Imágenes (*.png *.jpg *.jpeg *.webp)"),
-            ("▣", "Subir PDF", "Adaptamos el PDF al esquema del escritorio y lo convertimos en borrador.", "green", "PDF (*.pdf)"),
-        ]
-        for index, (icon, title, subtitle, accent, file_filter) in enumerate(import_sources):
-            card = QuickActionCard(icon, title, subtitle, accent, lambda flt=file_filter: self.import_file(flt))
-            card.setObjectName("importCard")
-            cards.addWidget(card, index // 2, index % 2)
-        inner.addLayout(cards)
-        layout.addWidget(panel)
+        t_zone = QFrame()
+        t_zone.setObjectName("dropZone")
+        t_zone_l = QVBoxLayout(t_zone)
+        t_zone_l.setContentsMargins(24, 32, 24, 32)
+        t_zone_l.setSpacing(10)
+        t_zone_l.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        t_zone_icon = QLabel("📷")
+        t_zone_icon.setObjectName("dropZoneIcon")
+        t_zone_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        t_zone_text = QLabel("Haz clic para seleccionar una foto del ticket")
+        t_zone_text.setObjectName("dropZoneText")
+        t_zone_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        t_zone_hint = QLabel("JPG, PNG, WebP — Máx. 10 MB")
+        t_zone_hint.setObjectName("dropZoneHint")
+        t_zone_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        t_select_btn = QPushButton("Seleccionar Foto")
+        t_select_btn.setObjectName("primaryButton")
+        t_select_btn.setMinimumHeight(48)
+        t_select_btn.clicked.connect(lambda: self._pick_file("Ticket"))
+        t_zone_l.addWidget(t_zone_icon)
+        t_zone_l.addWidget(t_zone_text)
+        t_zone_l.addWidget(t_zone_hint)
+        t_zone_l.addWidget(t_select_btn, 0, Qt.AlignmentFlag.AlignHCenter)
+        t_card_l.addWidget(t_zone)
+        t_layout.addWidget(t_card)
+        self._mode_stack.addWidget(ticket_page)  # index 0
 
-        layout.addWidget(self.section_label("Importaciones recientes"))
-        recent = QFrame()
-        recent.setObjectName("panel")
-        recent_layout = QVBoxLayout(recent)
-        recent_layout.setContentsMargins(16, 12, 16, 12)
-        recent_layout.setSpacing(8)
-        for name, meta, state in [
-            ("ticket-restaurante-26-05.jpg", "1.2 MB · 7 lineas detectadas · hace 4 min", "LISTO"),
-            ("factura-telefonica-may26.pdf", "286 KB · 12 lineas detectadas · hace 2 h", "LISTO"),
-            ("qr-verifactu-0xa3f1.png", "88 KB · 4 lineas detectadas · ayer", "REVISAR"),
-        ]:
-            row = QHBoxLayout()
-            row.setSpacing(10)
-            file_name = QLabel(f"{name}\n{meta}")
-            file_name.setObjectName("recentImport")
-            file_name.setWordWrap(True)
-            badge = QLabel(state)
-            badge.setObjectName("successBadge" if state == "LISTO" else "warningBadge")
-            open_btn = QPushButton("Abrir")
-            open_btn.setObjectName("ghostButton")
-            open_btn.setMinimumWidth(80)
-            row.addWidget(file_name, 1)
-            row.addWidget(badge)
-            row.addWidget(open_btn)
-            recent_layout.addLayout(row)
-        layout.addWidget(recent)
+        # — Panel PDF —
+        pdf_page = QWidget()
+        p_layout = QVBoxLayout(pdf_page)
+        p_layout.setContentsMargins(0, 0, 0, 0)
+        p_card = QFrame()
+        p_card.setObjectName("scanCard")
+        p_card_l = QVBoxLayout(p_card)
+        p_card_l.setContentsMargins(24, 24, 24, 24)
+        p_card_l.setSpacing(12)
+        p_title = QLabel("📄  Importar desde PDF")
+        p_title.setObjectName("scanCardTitle")
+        p_desc = QLabel(
+            "Sube un PDF de una factura o ticket y extraeremos el texto "
+            "para generar la factura."
+        )
+        p_desc.setObjectName("scanCardDesc")
+        p_desc.setWordWrap(True)
+        p_card_l.addWidget(p_title)
+        p_card_l.addWidget(p_desc)
+
+        p_zone = QFrame()
+        p_zone.setObjectName("dropZone")
+        p_zone_l = QVBoxLayout(p_zone)
+        p_zone_l.setContentsMargins(24, 32, 24, 32)
+        p_zone_l.setSpacing(10)
+        p_zone_l.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        p_zone_icon = QLabel("📄")
+        p_zone_icon.setObjectName("dropZoneIcon")
+        p_zone_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        p_zone_text = QLabel("Haz clic para seleccionar un archivo PDF")
+        p_zone_text.setObjectName("dropZoneText")
+        p_zone_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        p_zone_hint = QLabel("Archivos .pdf — Máx. 20 MB")
+        p_zone_hint.setObjectName("dropZoneHint")
+        p_zone_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        p_select_btn = QPushButton("Seleccionar PDF")
+        p_select_btn.setObjectName("primaryButton")
+        p_select_btn.setMinimumHeight(48)
+        p_select_btn.clicked.connect(lambda: self._pick_file("PDF"))
+        p_zone_l.addWidget(p_zone_icon)
+        p_zone_l.addWidget(p_zone_text)
+        p_zone_l.addWidget(p_zone_hint)
+        p_zone_l.addWidget(p_select_btn, 0, Qt.AlignmentFlag.AlignHCenter)
+        p_card_l.addWidget(p_zone)
+        p_layout.addWidget(p_card)
+        self._mode_stack.addWidget(pdf_page)  # index 1
+
+        layout.addWidget(self._mode_stack)
+
+        # ── Panel Procesando ──────────────────────────────────────────────
+        self._proc_panel = QFrame()
+        self._proc_panel.setObjectName("processingCard")
+        self._proc_panel.setVisible(False)
+        proc_l = QVBoxLayout(self._proc_panel)
+        proc_l.setContentsMargins(24, 36, 24, 36)
+        proc_l.setSpacing(14)
+        proc_l.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+
+        self._proc_title = QLabel("Procesando...")
+        self._proc_title.setObjectName("processingTitle")
+        self._proc_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._proc_detail = QLabel("Extrayendo texto del documento")
+        self._proc_detail.setObjectName("processingDetail")
+        self._proc_detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._proc_bar = QProgressBar()
+        self._proc_bar.setObjectName("scanProgressBar")
+        self._proc_bar.setRange(0, 0)  # indeterminate / pulsing
+        self._proc_bar.setMinimumWidth(320)
+        self._proc_bar.setMaximumWidth(480)
+        self._proc_bar.setFixedHeight(8)
+        self._proc_bar.setTextVisible(False)
+
+        proc_l.addWidget(self._proc_title)
+        proc_l.addWidget(self._proc_detail)
+        proc_l.addWidget(self._proc_bar, 0, Qt.AlignmentFlag.AlignHCenter)
+        layout.addWidget(self._proc_panel)
+
+        # ── Panel Resultado ───────────────────────────────────────────────
+        self._result_panel = QFrame()
+        self._result_panel.setObjectName("resultCard")
+        self._result_panel.setVisible(False)
+        self._result_layout = QVBoxLayout(self._result_panel)
+        self._result_layout.setContentsMargins(24, 24, 24, 24)
+        self._result_layout.setSpacing(18)
+        layout.addWidget(self._result_panel)
+
         layout.addStretch(1)
 
-    def import_file(self, file_filter: str) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Importar factura", str(Path.home()), file_filter)
+        # ── Tab switching logic ───────────────────────────────────────────
+        def _switch_tab(mode: int) -> None:
+            self._mode_stack.setCurrentIndex(mode)
+            self._result_panel.setVisible(False)
+            self._proc_panel.setVisible(False)
+            if mode == 0:
+                self._tab_ticket.setObjectName("scanTabActive")
+                self._tab_ticket.setChecked(True)
+                self._tab_pdf.setObjectName("scanTab")
+                self._tab_pdf.setChecked(False)
+            else:
+                self._tab_pdf.setObjectName("scanTabActive")
+                self._tab_pdf.setChecked(True)
+                self._tab_ticket.setObjectName("scanTab")
+                self._tab_ticket.setChecked(False)
+            # Force style refresh
+            self._tab_ticket.setStyle(self._tab_ticket.style())
+            self._tab_pdf.setStyle(self._tab_pdf.style())
+
+        self._tab_ticket.clicked.connect(lambda: _switch_tab(0))
+        self._tab_pdf.clicked.connect(lambda: _switch_tab(1))
+
+    def _pick_file(self, source: str) -> None:
+        """Open file dialog and start OCR processing."""
+        if source == "PDF":
+            file_filter = "PDF (*.pdf)"
+        else:
+            file_filter = "Imágenes (*.png *.jpg *.jpeg *.webp *.bmp)"
+
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Importar factura", str(Path.home()), file_filter
+        )
         if not path:
             return
-        draft = self.ocr_service.prepare_import(path)
-        self.factura_controller.create_factura(
-            cliente_nombre=draft.cliente_nombre,
-            fecha=date.today(),
-            lineas=[LineaFactura(draft.descripcion, Decimal("1"), Decimal("0.00"))],
-            notas=f"OCR pendiente. Archivo origen: {draft.source_path}",
-        )
-        QMessageBox.information(
-            self,
-            "Importacion preparada",
-            "Se ha creado un borrador revisable. El OCR real queda pendiente de implementar.",
-        )
+
+        self._ocr_current_source = source
+        self._show_processing(source)
+
+        worker = OcrWorker(path)
+        worker.finished.connect(self._on_ocr_done)
+        worker.error.connect(self._on_ocr_error)
+        self._ocr_worker = worker
+        worker.start()
+
+    def _show_processing(self, source: str) -> None:
+        self._mode_stack.setVisible(False)
+        self._result_panel.setVisible(False)
+        self._proc_panel.setVisible(True)
+        if source == "PDF":
+            self._proc_title.setText("Extrayendo texto del PDF...")
+            self._proc_detail.setText("Leyendo las páginas del documento")
+        else:
+            self._proc_title.setText("Procesando imagen con OCR...")
+            self._proc_detail.setText(
+                "Esto puede tardar unos segundos dependiendo de la calidad de la imagen"
+            )
+        self._proc_bar.setRange(0, 0)  # indeterminate pulse
+
+    def _on_ocr_done(self, draft: object) -> None:  # draft: OcrDraft
+        self._proc_panel.setVisible(False)
+        self._mode_stack.setVisible(True)
+
+        if not draft.raw_text or not draft.raw_text.strip():
+            QMessageBox.warning(
+                self,
+                "Sin texto",
+                "No se pudo extraer texto del documento. Prueba con una imagen más nítida.",
+            )
+            return
+
+        self._show_result(draft)
+
+    def _on_ocr_error(self, message: str) -> None:
+        self._proc_panel.setVisible(False)
+        self._mode_stack.setVisible(True)
+        QMessageBox.critical(self, "Error al procesar", message)
+
+    def _show_result(self, draft: object) -> None:  # draft: OcrDraft
+        """Populate and show the result panel — mirrors showResult() in scan-qr.js."""
+        # Clear previous result content
+        while self._result_layout.count():
+            item = self._result_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        source = self._ocr_current_source
+
+        # ─ Header row: ✅ Datos Extraídos ─
+        result_header = QHBoxLayout()
+        result_header.setSpacing(10)
+        check_icon = QLabel("✅")
+        check_icon.setObjectName("resultCheckIcon")
+        result_h_label = QLabel(f"Datos Extraídos — {source}")
+        result_h_label.setObjectName("resultTitle")
+        result_header.addWidget(check_icon)
+        result_header.addWidget(result_h_label)
+        result_header.addStretch(1)
+        self._result_layout.addLayout(result_header)
+
+        # ─ Data grid ─
+        grid_frame = QFrame()
+        grid_frame.setObjectName("resultGridFrame")
+        grid = QGridLayout(grid_frame)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(32)
+        grid.setVerticalSpacing(12)
+
+        def _add_field(row: int, col: int, label: str, value: str, big: bool = False) -> None:
+            lbl = QLabel(label.upper())
+            lbl.setObjectName("resultLabel")
+            val = QLabel(value or "—")
+            val.setObjectName("resultValueBig" if big else "resultValue")
+            val.setWordWrap(True)
+            cell = QVBoxLayout()
+            cell.setSpacing(2)
+            cell.addWidget(lbl)
+            cell.addWidget(val)
+            grid.addLayout(cell, row, col)
+
+        _add_field(0, 0, "Proveedor", draft.cliente_nombre)
+        _add_field(0, 1, "NIF / CIF", draft.cliente_nif)
+        _add_field(1, 0, "Fecha", draft.fecha.isoformat() if draft.fecha else "—")
+
+        # Calcular total desde líneas
+        from app.services.invoice_calculator import calculate_invoice
+        if draft.lineas:
+            totals = calculate_invoice(draft.lineas)
+            _add_field(1, 1, "Total", _money(totals.total), big=True)
+            if totals.subtotal:
+                _add_field(2, 0, "Base Imponible", _money(totals.subtotal))
+            if totals.iva:
+                _add_field(2, 1, "IVA", _money(totals.iva))
+        self._result_layout.addWidget(grid_frame)
+
+        # ─ Tabla de artículos detectados ─
+        if draft.lineas:
+            items_label = QLabel("ARTÍCULOS DETECTADOS")
+            items_label.setObjectName("resultSectionLabel")
+            self._result_layout.addWidget(items_label)
+
+            items_table = QTableWidget(len(draft.lineas), 3)
+            items_table.setObjectName("resultItemsTable")
+            items_table.setHorizontalHeaderLabels(["Descripción", "Uds.", "Precio"])
+            items_table.verticalHeader().setVisible(False)
+            items_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+            items_table.setShowGrid(False)
+            items_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+            items_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+            items_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+            items_table.setAlternatingRowColors(True)
+            items_table.setMaximumHeight(min(40 + len(draft.lineas) * 36, 260))
+
+            for i, linea in enumerate(draft.lineas):
+                items_table.setItem(i, 0, QTableWidgetItem(linea.descripcion))
+                qty_item = QTableWidgetItem(str(linea.cantidad))
+                qty_item.setTextAlignment(int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter))
+                items_table.setItem(i, 1, qty_item)
+                price_item = QTableWidgetItem(_money(linea.precio_unitario))
+                price_item.setTextAlignment(int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter))
+                items_table.setItem(i, 2, price_item)
+                items_table.setRowHeight(i, 36)
+
+            self._result_layout.addWidget(items_table)
+
+        # ─ Texto extraído (colapsable) ─
+        if draft.raw_text:
+            raw_group = QGroupBox("Ver texto extraído")
+            raw_group.setObjectName("rawTextGroup")
+            raw_group.setCheckable(True)
+            raw_group.setChecked(False)
+            raw_l = QVBoxLayout(raw_group)
+            raw_l.setContentsMargins(10, 10, 10, 10)
+            raw_edit = QPlainTextEdit()
+            raw_edit.setObjectName("rawTextBox")
+            raw_edit.setPlainText(draft.raw_text)
+            raw_edit.setReadOnly(True)
+            raw_edit.setMaximumHeight(180)
+            raw_l.addWidget(raw_edit)
+
+            def _toggle_raw(checked: bool) -> None:
+                raw_edit.setVisible(checked)
+
+            raw_group.toggled.connect(_toggle_raw)
+            raw_edit.setVisible(False)
+            self._result_layout.addWidget(raw_group)
+
+        # ─ Botones de acción ─
+        actions_row = QHBoxLayout()
+        actions_row.setSpacing(12)
+
+        create_btn = QPushButton("+ Crear Factura con estos datos")
+        create_btn.setObjectName("primaryButton")
+        create_btn.setMinimumHeight(48)
+        create_btn.clicked.connect(lambda: self._create_from_draft(draft))
+
+        again_btn = QPushButton("↺  Importar Otro")
+        again_btn.setObjectName("ghostButton")
+        again_btn.setMinimumHeight(48)
+        again_btn.clicked.connect(self._reset_import)
+
+        actions_row.addWidget(create_btn, 1)
+        actions_row.addWidget(again_btn)
+        self._result_layout.addLayout(actions_row)
+
+        self._result_panel.setVisible(True)
+
+    def _create_from_draft(self, draft: object) -> None:  # draft: OcrDraft
+        """Create invoice from OCR draft and open edit overlay — mirrors createInvoiceFromData()."""
+        try:
+            from app.services.invoice_calculator import calculate_invoice
+            notes = f"Importado automáticamente mediante OCR. Archivo origen: {draft.source_path}"
+            if draft.raw_text:
+                notes += f"\n\nTexto extraído:\n{draft.raw_text[:2000]}"
+            created = self.factura_controller.create_factura(
+                cliente_nombre=draft.cliente_nombre,
+                fecha=draft.fecha,
+                lineas=draft.lineas,
+                cliente_email=draft.cliente_email,
+                cliente_nif=draft.cliente_nif,
+                cliente_direccion=draft.cliente_direccion,
+                notas=notes,
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "No se pudo crear la factura", str(exc))
+            return
+
+        # Navigate to invoices and open the edit overlay (= edit-invoice in reference)
+        self.last_persistent_nav_row = 1
         self.navigation.setCurrentRow(1)
+        self.render_invoices()
+        self.open_invoice_overlay(created)
+
+    def _reset_import(self) -> None:
+        """Hide result panel and show the import UI again."""
+        self._result_panel.setVisible(False)
+        self._proc_panel.setVisible(False)
+        self._mode_stack.setVisible(True)
+
+    # kept for backwards compat (called by dashboard quick-action)
+    def import_file(self, file_filter: str) -> None:
+        self.show_import()
+        # Pick the right tab based on filter hint
+        if "pdf" in file_filter.lower():
+            self._tab_pdf.click()
+        self._pick_file("PDF" if "pdf" in file_filter.lower() else "Ticket")
 
     def show_voice(self) -> None:
         self.open_voice_overlay()
@@ -1347,6 +1755,169 @@ class MainWindow(QMainWindow):
 
 
 APP_STYLESHEET = """
+/* ── Importar Factura — scan-qr styles ────────────────────────── */
+QLabel#importPageTitle {
+    font-size: 28px;
+    font-weight: 800;
+    color: #181a2f;
+}
+QLabel#importPageSub {
+    color: #747894;
+    font-size: 14px;
+}
+QFrame#scanTabBar {
+    background: #ffffff;
+    border: 1px solid #e2e5f1;
+    border-radius: 10px;
+}
+QPushButton#scanTab {
+    background: transparent;
+    border: none;
+    color: #5d617d;
+    border-radius: 7px;
+    padding: 12px 20px;
+    font-size: 15px;
+    font-weight: 600;
+}
+QPushButton#scanTab:hover {
+    background: #f4f5fb;
+    color: #202238;
+}
+QPushButton#scanTabActive {
+    background: #5a50ee;
+    border: none;
+    color: #ffffff;
+    border-radius: 7px;
+    padding: 12px 20px;
+    font-size: 15px;
+    font-weight: 700;
+}
+QFrame#scanCard {
+    background: #ffffff;
+    border: 1px solid #e2e5f1;
+    border-radius: 10px;
+}
+QLabel#scanCardTitle {
+    font-size: 16px;
+    font-weight: 800;
+    color: #181a2f;
+}
+QLabel#scanCardDesc {
+    color: #747894;
+    font-size: 13px;
+}
+QFrame#dropZone {
+    background: #f8f9ff;
+    border: 2px dashed #c5c9f0;
+    border-radius: 10px;
+    min-height: 180px;
+}
+QLabel#dropZoneIcon {
+    font-size: 48px;
+    background: transparent;
+}
+QLabel#dropZoneText {
+    color: #202238;
+    font-size: 15px;
+    font-weight: 600;
+    background: transparent;
+}
+QLabel#dropZoneHint {
+    color: #747894;
+    font-size: 12px;
+    background: transparent;
+}
+QFrame#processingCard {
+    background: #ffffff;
+    border: 1px solid #e2e5f1;
+    border-radius: 10px;
+    min-height: 160px;
+}
+QLabel#processingTitle {
+    font-size: 18px;
+    font-weight: 700;
+    color: #181a2f;
+}
+QLabel#processingDetail {
+    color: #747894;
+    font-size: 13px;
+}
+QProgressBar#scanProgressBar {
+    background: #e8ebf7;
+    border: none;
+    border-radius: 4px;
+}
+QProgressBar#scanProgressBar::chunk {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #7d73ff, stop:1 #5449ef);
+    border-radius: 4px;
+}
+QFrame#resultCard {
+    background: #ffffff;
+    border: 1px solid #c8f5e4;
+    border-radius: 10px;
+}
+QLabel#resultCheckIcon {
+    font-size: 22px;
+    background: transparent;
+}
+QLabel#resultTitle {
+    font-size: 18px;
+    font-weight: 700;
+    color: #181a2f;
+}
+QLabel#resultLabel {
+    color: #747894;
+    font-size: 11px;
+    font-weight: 700;
+    background: transparent;
+}
+QLabel#resultValue {
+    color: #202238;
+    font-size: 14px;
+    font-weight: 600;
+    background: transparent;
+}
+QLabel#resultValueBig {
+    color: #5a50ee;
+    font-size: 18px;
+    font-weight: 800;
+    background: transparent;
+}
+QLabel#resultSectionLabel {
+    color: #747894;
+    font-size: 11px;
+    font-weight: 700;
+}
+QTableWidget#resultItemsTable {
+    background: #fafbff;
+    alternate-background-color: #f4f5fb;
+    border: 1px solid #e2e5f1;
+    border-radius: 7px;
+    font-size: 13px;
+}
+QGroupBox#rawTextGroup {
+    color: #747894;
+    font-size: 12px;
+    border: 1px solid #e2e5f1;
+    border-radius: 7px;
+    margin-top: 8px;
+    padding-top: 10px;
+}
+QGroupBox#rawTextGroup::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 0 6px;
+    color: #747894;
+}
+QPlainTextEdit#rawTextBox {
+    background: #f4f5fb;
+    border: none;
+    font-size: 12px;
+    color: #4a4e6d;
+    font-family: "Consolas", monospace;
+}
+/* ────────────────────────────────────────────────────────────── */
+
 QMainWindow {
     background: #f4f5fb;
 }
