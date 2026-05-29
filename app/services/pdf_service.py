@@ -256,7 +256,7 @@ def _render_classic(pdf, factura: Factura, totals, width, height, emisor_details
 
 def _draw_lines_table_classic(pdf, factura, y, margin, RIGHT, width, height, mm):
     """Dibuja la tabla de líneas para la plantilla clásica, gestiona paginación."""
-    headers = ["Descripción", "Cantidad", "Precio Unit.", "IVA", "Subtotal"]
+    headers = ["Concepto", "Cantidad", "Precio Unit.", "IVA", "Subtotal"]
     col_x = [margin, margin + 80 * mm, margin + 100 * mm, margin + 130 * mm, margin + 150 * mm]
 
     # Cabecera de tabla
@@ -264,8 +264,13 @@ def _draw_lines_table_classic(pdf, factura, y, margin, RIGHT, width, height, mm)
     pdf.rect(margin, y - 8 * mm, RIGHT - margin, 9 * mm, fill=1, stroke=0)
     pdf.setFillColorRGB(1, 1, 1)
     pdf.setFont("Helvetica-Bold", 9)
-    for i, h in enumerate(headers):
-        pdf.drawString(col_x[i] + 2 * mm, y - 4 * mm, h)
+    
+    # Dibujar cabeceras alineadas correctamente
+    pdf.drawString(col_x[0] + 2 * mm, y - 6 * mm, headers[0])
+    pdf.drawCentredString(col_x[1] + 10 * mm, y - 6 * mm, headers[1])
+    pdf.drawRightString(col_x[3] - 2 * mm, y - 6 * mm, headers[2])
+    pdf.drawCentredString(col_x[3] + 10 * mm, y - 6 * mm, headers[3])
+    pdf.drawRightString(RIGHT - 2 * mm, y - 6 * mm, headers[4])
     y -= 9 * mm
 
     pdf.setFont("Helvetica", 9)
@@ -289,8 +294,12 @@ def _draw_lines_table_classic(pdf, factura, y, margin, RIGHT, width, height, mm)
             f"{iva_pct:.0f}%",
             _fmt_currency(subtotal),
         ]
-        for i, val in enumerate(row_vals):
-            pdf.drawString(col_x[i] + 2 * mm, y - 4.5 * mm, val)
+        # Dibujar valores alineados correctamente
+        pdf.drawString(col_x[0] + 2 * mm, y - 5 * mm, row_vals[0])
+        pdf.drawCentredString(col_x[1] + 10 * mm, y - 5 * mm, row_vals[1])
+        pdf.drawRightString(col_x[3] - 2 * mm, y - 5 * mm, row_vals[2])
+        pdf.drawCentredString(col_x[3] + 10 * mm, y - 5 * mm, row_vals[3])
+        pdf.drawRightString(RIGHT - 2 * mm, y - 5 * mm, row_vals[4])
         y -= 8 * mm
 
     return y
@@ -418,8 +427,13 @@ def _draw_lines_table_modern(pdf, factura, y, margin, RIGHT, width, height, mm):
     pdf.rect(margin, y, RIGHT - margin, 9 * mm, fill=1, stroke=0)
     pdf.setFillColorRGB(1, 1, 1)
     pdf.setFont("Helvetica-Bold", 9)
-    for i, h in enumerate(headers):
-        pdf.drawCentredString(col_x[i] + 10 * mm, y + 3 * mm, h)
+    
+    # Dibujar cabeceras alineadas correctamente
+    pdf.drawString(col_x[0] + 2 * mm, y + 3 * mm, headers[0])
+    pdf.drawCentredString(col_x[1] + 10 * mm, y + 3 * mm, headers[1])
+    pdf.drawRightString(col_x[3] - 2 * mm, y + 3 * mm, headers[2])
+    pdf.drawCentredString(col_x[3] + 12.5 * mm, y + 3 * mm, headers[3])
+    pdf.drawRightString(RIGHT - 2 * mm, y + 3 * mm, headers[4])
     y -= 1 * mm
 
     pdf.setFont("Helvetica", 9)
@@ -437,8 +451,12 @@ def _draw_lines_table_modern(pdf, factura, y, margin, RIGHT, width, height, mm):
             f"{iva_pct:.0f}%",
             _fmt_currency(subtotal),
         ]
-        for i, val in enumerate(row_vals):
-            pdf.drawCentredString(col_x[i] + 10 * mm, y - 4.5 * mm, val)
+        # Dibujar valores alineados correctamente
+        pdf.drawString(col_x[0] + 2 * mm, y - 4.5 * mm, row_vals[0])
+        pdf.drawCentredString(col_x[1] + 10 * mm, y - 4.5 * mm, row_vals[1])
+        pdf.drawRightString(col_x[3] - 2 * mm, y - 4.5 * mm, row_vals[2])
+        pdf.drawCentredString(col_x[3] + 12.5 * mm, y - 4.5 * mm, row_vals[3])
+        pdf.drawRightString(RIGHT - 2 * mm, y - 4.5 * mm, row_vals[4])
         y -= 8 * mm
 
     return y
@@ -546,8 +564,13 @@ def _draw_lines_table_minimal(pdf, factura, y, margin, RIGHT, width, height, mm)
     pdf.rect(margin, y, RIGHT - margin, 8 * mm, fill=0, stroke=1)
     pdf.setFont("Helvetica-Bold", 9)
     pdf.setFillColorRGB(0.392, 0.392, 0.392)
-    for i, h in enumerate(headers):
-        pdf.drawString(col_x[i] + 2 * mm, y + 2 * mm, h)
+    
+    # Dibujar cabeceras alineadas correctamente
+    pdf.drawString(col_x[0] + 2 * mm, y + 2.5 * mm, headers[0])
+    pdf.drawCentredString(col_x[1] + 10 * mm, y + 2.5 * mm, headers[1])
+    pdf.drawRightString(col_x[3] - 2 * mm, y + 2.5 * mm, headers[2])
+    pdf.drawCentredString(col_x[3] + 10 * mm, y + 2.5 * mm, headers[3])
+    pdf.drawRightString(RIGHT - 2 * mm, y + 2.5 * mm, headers[4])
     y -= 1 * mm
 
     pdf.setFont("Helvetica", 9)
@@ -568,8 +591,12 @@ def _draw_lines_table_minimal(pdf, factura, y, margin, RIGHT, width, height, mm)
             f"{iva_pct:.0f}%",
             _fmt_currency(subtotal),
         ]
-        for i, val in enumerate(row_vals):
-            pdf.drawString(col_x[i] + 2 * mm, y - 4.5 * mm, val)
+        # Dibujar valores alineados correctamente
+        pdf.drawString(col_x[0] + 2 * mm, y - 5 * mm, row_vals[0])
+        pdf.drawCentredString(col_x[1] + 10 * mm, y - 5 * mm, row_vals[1])
+        pdf.drawRightString(col_x[3] - 2 * mm, y - 5 * mm, row_vals[2])
+        pdf.drawCentredString(col_x[3] + 10 * mm, y - 5 * mm, row_vals[3])
+        pdf.drawRightString(RIGHT - 2 * mm, y - 5 * mm, row_vals[4])
         y -= 8 * mm
 
     return y

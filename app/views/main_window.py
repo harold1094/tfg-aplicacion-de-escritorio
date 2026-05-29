@@ -662,7 +662,18 @@ class InvoiceFormPanel(QFrame):
         self.update_preview()
 
     def read_lines(self) -> list[LineaFactura]:
-        # Forzar el foco fuera de la tabla para cerrar y confirmar cualquier editor de celda activo
+        # 1. Sincronizar de forma proactiva el editor de celda activo para evitar pérdidas por retraso del event loop de Qt
+        editors = self.lines_table.findChildren(QLineEdit)
+        for editor in editors:
+            if editor.isVisible():
+                r = self.lines_table.currentRow()
+                c = self.lines_table.currentColumn()
+                if r >= 0 and c >= 0:
+                    item = self.lines_table.item(r, c)
+                    if item:
+                        item.setText(editor.text())
+
+        # 2. Forzar el foco fuera de la tabla para cerrar formalmente el editor
         self.client_input.setFocus()
         self.lines_table.setCurrentCell(-1, -1)
         
@@ -765,6 +776,11 @@ class InvoiceFormPanel(QFrame):
         em_target = self.auto_email_input.text().strip() or self.email_input.text().strip() or 'cliente'
         em_active = f"Sí (enviar a {em_target})" if self.auto_email_check.isChecked() else "No"
 
+        # Determinar badge de estado y color para paridad total con el PDF clásico
+        estado_val = self.factura.estado.value.upper() if self.factura else 'BORRADOR'
+        is_emitted = (self.factura.estado != EstadoFactura.BORRADOR) if self.factura else False
+        badge_bg = "#09a06b" if is_emitted else "#d48c00"
+
         if template == "modern":
             html = f"""
             <div style="font-family: 'Segoe UI', Arial, sans-serif; color: #181a2f; padding: 0; background-color: #ffffff; border: 1px solid #e2e5f1; border-radius: 8px;">
@@ -774,12 +790,12 @@ class InvoiceFormPanel(QFrame):
                 <div style="background-color: #582ec2; color: white; padding: 18px 20px;">
                     <table width="100%" cellspacing="0" cellpadding="0" style="color: white; border: none;">
                         <tr>
-                            <td><b style="font-size: 16px; letter-spacing: 0.5px;">✨ FACTURA MODERNA</b></td>
+                            <td><b style="font-size: 20px; letter-spacing: 0.5px;">FACTURA</b></td>
                             <td style="text-align: right;"><b style="font-size: 14px;">{num_factura}</b></td>
                         </tr>
                         <tr>
-                            <td style="font-size: 10px; opacity: 0.8; padding-top: 4px;">Fecha: {self.date_input.date().toPython().strftime('%d/%m/%Y')}</td>
-                            <td style="text-align: right; font-size: 10px; opacity: 0.8; padding-top: 4px;">Verifactu: {vf_active}</td>
+                            <td></td>
+                            <td style="text-align: right; font-size: 10px; opacity: 0.8; padding-top: 4px;">Fecha: {self.date_input.date().toPython().strftime('%d/%m/%Y')}</td>
                         </tr>
                     </table>
                 </div>
@@ -932,8 +948,8 @@ class InvoiceFormPanel(QFrame):
                             <td style="text-align: right;"><b style="font-size: 14px;">{num_factura}</b></td>
                         </tr>
                         <tr>
-                            <td style="font-size: 10px; opacity: 0.8; padding-top: 4px;">Fecha: {self.date_input.date().toPython().strftime('%d/%m/%Y')}</td>
-                            <td style="text-align: right; font-size: 10px; opacity: 0.8; padding-top: 4px;">Estado: {self.factura.estado.value.upper() if self.factura else 'BORRADOR'}</td>
+                            <td></td>
+                            <td style="text-align: right; font-size: 10px; opacity: 0.8; padding-top: 4px;">Fecha: {self.date_input.date().toPython().strftime('%d/%m/%Y')}</td>
                         </tr>
                     </table>
                 </div>
@@ -941,6 +957,11 @@ class InvoiceFormPanel(QFrame):
                 <div style="background-color: #d4af37; height: 4px;"></div>
 
                 <div style="padding: 16px;">
+                    <!-- Badge de Estado que coincide exactamente con el del PDF -->
+                    <div style="display: inline-block; background-color: {badge_bg}; color: white; padding: 4px 12px; border-radius: 4px; font-weight: bold; font-size: 10px; margin-bottom: 12px; text-transform: uppercase;">
+                        {estado_val}
+                    </div>
+
                     <!-- Emisor / Receptor en columnas side-by-side -->
                     <table width="100%" cellspacing="0" cellpadding="0" style="margin-bottom: 18px; border: none; font-size: 11px;">
                         <tr>
@@ -967,10 +988,10 @@ class InvoiceFormPanel(QFrame):
                         <thead>
                             <tr style="background-color: #1b2a5a; color: white;">
                                 <th align="left" style="padding: 6px 8px;">Concepto</th>
-                                <th align="center" style="padding: 6px 8px; width: 40px;">Cant</th>
-                                <th align="right" style="padding: 6px 8px; width: 75px;">Precio</th>
+                                <th align="center" style="padding: 6px 8px; width: 60px;">Cantidad</th>
+                                <th align="right" style="padding: 6px 8px; width: 80px;">Precio Unit.</th>
                                 <th align="center" style="padding: 6px 8px; width: 40px;">IVA</th>
-                                <th align="right" style="padding: 6px 8px; width: 80px;">Importe</th>
+                                <th align="right" style="padding: 6px 8px; width: 80px;">Subtotal</th>
                             </tr>
                         </thead>
                         <tbody>
