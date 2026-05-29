@@ -767,125 +767,131 @@ class InvoiceFormPanel(QFrame):
 
         if template == "modern":
             html = f"""
-            <div style="font-family: 'Segoe UI', Arial, sans-serif; color: #181a2f; padding: 4px;">
+            <div style="font-family: 'Segoe UI', Arial, sans-serif; color: #181a2f; padding: 0; background-color: #ffffff; border: 1px solid #e2e5f1; border-radius: 8px;">
+                <!-- Barra de estado decorativa -->
+                <div style="background-color: #24083a; height: 10px; border-radius: 6px 6px 0 0;"></div>
                 <!-- Cabecera moderna morada -->
-                <div style="background-color: #6256f4; color: white; padding: 16px; border-radius: 8px; margin-bottom: 14px;">
+                <div style="background-color: #582ec2; color: white; padding: 18px 20px;">
                     <table width="100%" cellspacing="0" cellpadding="0" style="color: white; border: none;">
                         <tr>
                             <td><b style="font-size: 16px; letter-spacing: 0.5px;">✨ FACTURA MODERNA</b></td>
                             <td style="text-align: right;"><b style="font-size: 14px;">{num_factura}</b></td>
                         </tr>
                         <tr>
-                            <td style="font-size: 11px; opacity: 0.9; padding-top: 4px;">Fecha: {self.date_input.date().toPython().isoformat()}</td>
-                            <td style="text-align: right; font-size: 11px; opacity: 0.9; padding-top: 4px;">Verifactu: {vf_active}</td>
+                            <td style="font-size: 10px; opacity: 0.8; padding-top: 4px;">Fecha: {self.date_input.date().toPython().strftime('%d/%m/%Y')}</td>
+                            <td style="text-align: right; font-size: 10px; opacity: 0.8; padding-top: 4px;">Verifactu: {vf_active}</td>
                         </tr>
                     </table>
                 </div>
+                <!-- Línea de acento lila claro -->
+                <div style="background-color: #af8afe; height: 3px;"></div>
 
-                <!-- Cards Emisor / Receptor en columnas side-by-side -->
-                <table width="100%" cellspacing="0" cellpadding="0" style="margin-bottom: 14px; border: none;">
-                    <tr>
-                        <td width="48%" valign="top" style="background-color: #fcfbff; border: 1px solid #e2e5f1; border-radius: 8px; padding: 10px;">
-                            <b style="color: #8e2de2; font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px;">EMISOR</b>
-                            <div style="font-size: 13px; font-weight: bold; color: #181a2f; margin-top: 4px;">{em_nombre}</div>
-                            <div style="font-size: 10px; color: #5d617d; margin-top: 4px;"><b>NIF:</b> {em_nif}</div>
-                            <div style="font-size: 10px; color: #5d617d;"><b>Dir:</b> {em_dir}</div>
-                            <div style="font-size: 10px; color: #5d617d;"><b>Email:</b> {em_correo}</div>
-                        </td>
-                        <td width="4%"></td>
-                        <td width="48%" valign="top" style="background-color: #f7fcf9; border: 1px solid #c8e6d9; border-radius: 8px; padding: 10px;">
-                            <b style="color: #069c6e; font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px;">RECEPTOR</b>
-                            <div style="font-size: 13px; font-weight: bold; color: #181a2f; margin-top: 4px;">{self.client_input.text() or 'Receptor'}</div>
-                            <div style="font-size: 10px; color: #5d617d; margin-top: 4px;"><b>NIF:</b> {self.nif_input.text() or '-'}</div>
-                            <div style="font-size: 10px; color: #5d617d;"><b>Dir:</b> {self.address_input.text() or '-'}</div>
-                            <div style="font-size: 10px; color: #5d617d;"><b>Email:</b> {self.email_input.text() or '-'}</div>
-                        </td>
-                    </tr>
-                </table>
-
-                <!-- Tabla de artículos -->
-                <table width="100%" cellspacing="0" cellpadding="0" style="font-size: 11px; margin-bottom: 14px; border-collapse: collapse;">
-                    <thead>
-                        <tr style="color: #8e2de2; font-weight: bold; border-bottom: 2px solid #8e2de2;">
-                            <th align="left" style="padding-bottom: 6px;">Concepto</th>
-                            <th align="center" style="padding-bottom: 6px; width: 35px;">Cant</th>
-                            <th align="right" style="padding-bottom: 6px; width: 70px;">Precio</th>
-                            <th align="center" style="padding-bottom: 6px; width: 35px;">IVA</th>
-                            <th align="right" style="padding-bottom: 6px; width: 75px;">Importe</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {table_rows_html}
-                    </tbody>
-                </table>
-
-                <!-- Totales modernos -->
-                <div style="background-color: #f8f9ff; border-radius: 6px; padding: 10px; margin-top: 10px; border: 1px solid #e2e5f1;">
-                    <table width="100%" cellspacing="0" cellpadding="0" style="font-size: 11px;">
+                <div style="padding: 16px;">
+                    <!-- Cards Emisor / Receptor en columnas side-by-side -->
+                    <table width="100%" cellspacing="0" cellpadding="0" style="margin-bottom: 18px; border: none;">
                         <tr>
-                            <td style="color: #5d617d;">Base Imponible:</td>
-                            <td align="right" style="color: #181a2f;">{_money(totals.subtotal)}</td>
-                        </tr>
-                        <tr>
-                            <td style="color: #5d617d; padding-top: 4px;">IVA:</td>
-                            <td align="right" style="color: #181a2f; padding-top: 4px;">{_money(totals.iva)}</td>
-                        </tr>
-                        <tr style="font-weight: bold; font-size: 13px; color: #8e2de2;">
-                            <td style="padding-top: 8px; border-top: 1px solid #e2e5f1;">TOTAL:</td>
-                            <td align="right" style="padding-top: 8px; border-top: 1px solid #e2e5f1;">{_money(totals.total)}</td>
+                            <td width="48%" valign="top" style="background-color: #f6f5ff; border: 1px solid #e8e6ff; border-radius: 6px; padding: 12px;">
+                                <b style="color: #582ec2; font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px;">DE EMISOR</b>
+                                <div style="font-size: 13px; font-weight: bold; color: #181a2f; margin-top: 4px;">{em_nombre}</div>
+                                <div style="font-size: 10px; color: #5d617d; margin-top: 4px;"><b>NIF:</b> {em_nif}</div>
+                                <div style="font-size: 10px; color: #5d617d;"><b>Dir:</b> {em_dir}</div>
+                                <div style="font-size: 10px; color: #5d617d;"><b>Email:</b> {em_correo}</div>
+                            </td>
+                            <td width="4%"></td>
+                            <td width="48%" valign="top" style="background-color: #f5fcf8; border: 1px solid #dcf3e7; border-radius: 6px; padding: 12px;">
+                                <b style="color: #069c6e; font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px;">PARA RECEPTOR</b>
+                                <div style="font-size: 13px; font-weight: bold; color: #181a2f; margin-top: 4px;">{self.client_input.text() or 'Receptor'}</div>
+                                <div style="font-size: 10px; color: #5d617d; margin-top: 4px;"><b>NIF:</b> {self.nif_input.text() or '-'}</div>
+                                <div style="font-size: 10px; color: #5d617d;"><b>Dir:</b> {self.address_input.text() or '-'}</div>
+                                <div style="font-size: 10px; color: #5d617d;"><b>Email:</b> {self.email_input.text() or '-'}</div>
+                            </td>
                         </tr>
                     </table>
-                </div>
 
-                <div style="font-size: 9px; color: #747894; margin-top: 12px; border-top: 1px dashed #ddd; padding-top: 6px;">
-                    <b>AEAT Registro:</b> {vf_active} | <b>Email automático:</b> {em_active}
+                    <!-- Tabla de artículos -->
+                    <table width="100%" cellspacing="0" cellpadding="0" style="font-size: 11px; margin-bottom: 18px; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background-color: #6366f1; color: white;">
+                                <th align="left" style="padding: 6px 8px; border-radius: 4px 0 0 4px;">Concepto</th>
+                                <th align="center" style="padding: 6px 8px; width: 40px;">Uds.</th>
+                                <th align="right" style="padding: 6px 8px; width: 75px;">Precio</th>
+                                <th align="center" style="padding: 6px 8px; width: 40px;">IVA</th>
+                                <th align="right" style="padding: 6px 8px; width: 80px; border-radius: 0 4px 4px 0;">Importe</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {table_rows_html}
+                        </tbody>
+                    </table>
+
+                    <!-- Totales modernos en caja morada -->
+                    <div style="background-color: #582ec2; border-radius: 8px; padding: 12px; color: white; width: 45%; margin-left: 55%;">
+                        <table width="100%" cellspacing="0" cellpadding="0" style="font-size: 11px; color: #e8dbff;">
+                            <tr>
+                                <td>Base Imponible:</td>
+                                <td align="right" style="color: white;">{_money(totals.subtotal)}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding-top: 4px;">IVA:</td>
+                                <td align="right" style="color: white; padding-top: 4px;">{_money(totals.iva)}</td>
+                            </tr>
+                            <tr style="font-weight: bold; font-size: 13px; color: white;">
+                                <td style="padding-top: 8px; border-top: 1px solid #7d5cd7;">TOTAL:</td>
+                                <td align="right" style="padding-top: 8px; border-top: 1px solid #7d5cd7;">{_money(totals.total)}</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <div style="font-size: 8px; color: #747894; margin-top: 18px; border-top: 1px dashed #ddd; padding-top: 6px;">
+                        <b>AEAT Registro:</b> {vf_active} | <b>Email automático:</b> {em_active}
+                    </div>
+                    {notas_html}
                 </div>
-                {notas_html}
             </div>
             """
         elif template == "minimal":
             html = f"""
-            <div style="font-family: 'Segoe UI', Arial, sans-serif; color: #222; padding: 4px;">
-                <!-- Estilo minimalista -->
-                <div style="border-bottom: 2px solid #222; padding-bottom: 8px; margin-bottom: 14px;">
-                    <table width="100%" cellspacing="0" cellpadding="0">
-                        <tr>
-                            <td><span style="font-size: 18px; letter-spacing: 1px; font-weight: bold;">🌱 FACTURA MINIMALISTA</span></td>
-                            <td style="text-align: right; font-size: 12px;">Nº {num_factura}</td>
-                        </tr>
-                    </table>
-                </div>
-
-                <table width="100%" cellspacing="0" cellpadding="0" style="font-size: 10px; margin-bottom: 14px; line-height: 1.4;">
+            <div style="font-family: 'Segoe UI', Arial, sans-serif; color: #222; padding: 18px; background-color: #ffffff; border: 1px solid #e2e5f1; border-radius: 8px;">
+                <!-- Título minimalista -->
+                <table width="100%" cellspacing="0" cellpadding="0" style="border-bottom: 2px solid #222; padding-bottom: 8px; margin-bottom: 18px;">
                     <tr>
-                        <td width="50%" valign="top">
-                            <b>DE:</b><br/>
-                            {em_nombre}<br/>
-                            NIF: {em_nif}<br/>
-                            {em_dir}, {em_cp} {em_ciudad}
-                        </td>
-                        <td width="50%" align="right" valign="top">
-                            <b>PARA:</b><br/>
-                            {self.client_input.text() or 'Receptor'}<br/>
-                            NIF: {self.nif_input.text() or '-'}<br/>
-                            Dir: {self.address_input.text() or '-'}<br/>
-                            Email: {self.email_input.text() or '-'}
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="padding-top: 8px;"><b>Fecha:</b> {self.date_input.date().toPython().isoformat()}</td>
-                        <td align="right" style="padding-top: 8px;"><b>Verifactu:</b> {vf_active}</td>
+                        <td><span style="font-size: 22px; font-weight: bold; letter-spacing: 0.5px; color: #111;">Factura</span></td>
+                        <td align="right" style="font-size: 11px; color: #555;">Nº {num_factura}</td>
                     </tr>
                 </table>
 
-                <table width="100%" cellspacing="0" cellpadding="0" style="font-size: 10px; margin-bottom: 14px; border-top: 1px solid #111; border-bottom: 1px solid #111;">
+                <table width="100%" cellspacing="0" cellpadding="0" style="font-size: 11px; margin-bottom: 18px; line-height: 1.4; border: none;">
+                    <tr>
+                        <td width="48%" valign="top">
+                            <b style="color: #666; font-size: 9px;">EMISOR</b><br/>
+                            <div style="font-weight: bold; font-size: 12px; color: #222; margin-top: 3px;">{em_nombre}</div>
+                            <div style="color: #555; margin-top: 2px;">NIF: {em_nif}</div>
+                            <div style="color: #555;">{em_dir}</div>
+                            <div style="color: #555;">{em_cp} {em_ciudad}</div>
+                        </td>
+                        <td width="4%"></td>
+                        <td width="48%" align="right" valign="top">
+                            <b style="color: #666; font-size: 9px;">RECEPTOR</b><br/>
+                            <div style="font-weight: bold; font-size: 12px; color: #222; margin-top: 3px;">{self.client_input.text() or 'Receptor'}</div>
+                            <div style="color: #555; margin-top: 2px;">NIF: {self.nif_input.text() or '—'}</div>
+                            <div style="color: #555;">{self.address_input.text() or '—'}</div>
+                            <div style="color: #555;">{self.email_input.text() or '—'}</div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding-top: 8px;"><b>Fecha:</b> {self.date_input.date().toPython().strftime('%d/%m/%Y')}</td>
+                        <td align="right" style="padding-top: 8px;"><b>AEAT:</b> {vf_active}</td>
+                    </tr>
+                </table>
+
+                <table width="100%" cellspacing="0" cellpadding="0" style="font-size: 11px; margin-bottom: 18px; border-top: 1px solid #111; border-bottom: 1px solid #111; border-collapse: collapse;">
                     <thead>
-                        <tr style="font-weight: bold;">
-                            <th align="left" style="padding: 5px 0;">DESCRIPCIÓN</th>
-                            <th align="center" style="padding: 5px 0; width: 35px;">CANT</th>
-                            <th align="right" style="padding: 5px 0; width: 70px;">PRECIO</th>
-                            <th align="center" style="padding: 5px 0; width: 35px;">IVA</th>
-                            <th align="right" style="padding: 5px 0; width: 75px;">TOTAL</th>
+                        <tr style="font-weight: bold; background-color: #fcfcfc;">
+                            <th align="left" style="padding: 6px 8px; border-bottom: 1px solid #ccc;">DESCRIPCIÓN</th>
+                            <th align="center" style="padding: 6px 8px; width: 40px; border-bottom: 1px solid #ccc;">CANT</th>
+                            <th align="right" style="padding: 6px 8px; width: 75px; border-bottom: 1px solid #ccc;">PRECIO</th>
+                            <th align="center" style="padding: 6px 8px; width: 40px; border-bottom: 1px solid #ccc;">IVA</th>
+                            <th align="right" style="padding: 6px 8px; width: 80px; border-bottom: 1px solid #ccc;">TOTAL</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -893,22 +899,23 @@ class InvoiceFormPanel(QFrame):
                     </tbody>
                 </table>
 
-                <table width="100%" cellspacing="0" cellpadding="0" style="font-size: 10px; line-height: 1.5;">
+                <table width="45%" cellspacing="0" cellpadding="0" align="right" style="font-size: 11px; line-height: 1.5;">
                     <tr>
-                        <td style="color: #555;">Base Imponible:</td>
-                        <td align="right">{_money(totals.subtotal)}</td>
+                        <td style="color: #666;">Subtotal:</td>
+                        <td align="right" style="color: #222;">{_money(totals.subtotal)}</td>
                     </tr>
                     <tr>
-                        <td style="color: #555;">IVA:</td>
-                        <td align="right">{_money(totals.iva)}</td>
+                        <td style="color: #666;">IVA:</td>
+                        <td align="right" style="color: #222;">{_money(totals.iva)}</td>
                     </tr>
                     <tr style="font-weight: bold; font-size: 12px;">
-                        <td style="padding-top: 5px; border-top: 1px dashed #111;">TOTAL FACTURA:</td>
+                        <td style="padding-top: 5px; border-top: 1px dashed #111;">Total:</td>
                         <td align="right" style="padding-top: 5px; border-top: 1px dashed #111;">{_money(totals.total)}</td>
                     </tr>
                 </table>
+                <div style="clear: both;"></div>
 
-                <div style="font-size: 8px; color: #666; margin-top: 14px; border-top: 1px solid #ccc; padding-top: 6px;">
+                <div style="font-size: 8px; color: #777; margin-top: 18px; border-top: 1px solid #eee; padding-top: 6px;">
                     AEAT: {vf_active} | Email Automático: {em_active}
                 </div>
                 {notas_html}
@@ -916,68 +923,82 @@ class InvoiceFormPanel(QFrame):
             """
         else:  # classic (Clásica)
             html = f"""
-            <div style="font-family: Arial, Helvetica, sans-serif; color: #2c3e50; padding: 4px;">
-                <!-- Estilo corporativo clásico -->
-                <table width="100%" cellspacing="0" cellpadding="0" style="margin-bottom: 14px; border-bottom: 3px solid #1c2d5a; padding-bottom: 8px;">
-                    <tr>
-                        <td>
-                            <span style="font-size: 18px; font-weight: bold; color: #1c2d5a;">💼 FACTURA CLÁSICA</span><br/>
-                            <span style="font-size: 10px; color: #7f8c8d;">Nº {num_factura} | Fecha: {self.date_input.date().toPython().isoformat()}</span>
-                        </td>
-                        <td style="text-align: right;">
-                            <span style="font-size: 12px; font-weight: bold; color: #1c2d5a;">{em_nombre}</span><br/>
-                            <span style="font-size: 9px; color: #7f8c8d;">NIF: {em_nif} | {em_correo}</span>
-                        </td>
-                    </tr>
-                </table>
-
-                <table width="100%" cellspacing="0" cellpadding="0" style="font-size: 11px; margin-bottom: 14px; background-color: #fdfdfd; border: 1px solid #e2e5f1; padding: 10px; border-radius: 4px;">
-                    <tr>
-                        <td>
-                            <b style="color: #1c2d5a;">DATOS DEL CLIENTE</b><br/>
-                            <b>Nombre:</b> {self.client_input.text() or 'Receptor'}<br/>
-                            <b>NIF:</b> {self.nif_input.text() or '-'}<br/>
-                            <b>Dirección:</b> {self.address_input.text() or '-'}<br/>
-                            <b>Email:</b> {self.email_input.text() or '-'}
-                        </td>
-                    </tr>
-                </table>
-
-                <table width="100%" cellspacing="0" cellpadding="0" style="font-size: 11px; margin-bottom: 14px; border-collapse: collapse;">
-                    <thead>
-                        <tr style="background-color: #1c2d5a; color: white;">
-                            <th align="left" style="padding: 5px 8px;">Concepto</th>
-                            <th align="center" style="padding: 5px 8px; width: 35px;">Cant</th>
-                            <th align="right" style="padding: 5px 8px; width: 70px;">Precio</th>
-                            <th align="center" style="padding: 5px 8px; width: 35px;">IVA</th>
-                            <th align="right" style="padding: 5px 8px; width: 75px;">Subtotal</th>
+            <div style="font-family: Arial, Helvetica, sans-serif; color: #2c3e50; padding: 0; background-color: #ffffff; border: 1px solid #e2e5f1; border-radius: 8px;">
+                <!-- Cabecera clásica Navy Blue -->
+                <div style="background-color: #1b2a5a; color: white; padding: 20px; border-radius: 6px 6px 0 0;">
+                    <table width="100%" cellspacing="0" cellpadding="0" style="color: white; border: none;">
+                        <tr>
+                            <td><b style="font-size: 22px; font-weight: bold; letter-spacing: 1px;">FACTURA</b></td>
+                            <td style="text-align: right;"><b style="font-size: 14px;">{num_factura}</b></td>
                         </tr>
-                    </thead>
-                    <tbody>
-                        {table_rows_html}
-                    </tbody>
-                </table>
-
-                <table width="45%" cellspacing="0" cellpadding="0" align="right" style="font-size: 11px; margin-top: 10px;">
-                    <tr>
-                        <td style="padding: 3px 0; color: #7f8c8d;">Base:</td>
-                        <td align="right">{_money(totals.subtotal)}</td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 3px 0; color: #7f8c8d; border-bottom: 1px solid #e2e5f1;">IVA:</td>
-                        <td align="right" style="padding: 3px 0; border-bottom: 1px solid #e2e5f1;">{_money(totals.iva)}</td>
-                    </tr>
-                    <tr style="font-weight: bold; color: #1c2d5a; font-size: 12px;">
-                        <td style="padding-top: 6px;">TOTAL:</td>
-                        <td align="right" style="padding-top: 6px;">{_money(totals.total)}</td>
-                    </tr>
-                </table>
-                <div style="clear: both;"></div>
-
-                <div style="font-size: 9px; color: #7f8c8d; margin-top: 14px; padding-top: 6px; border-top: 1px solid #eee;">
-                    <b>AEAT Registro:</b> {vf_active} | <b>Envío Email:</b> {em_active}
+                        <tr>
+                            <td style="font-size: 10px; opacity: 0.8; padding-top: 4px;">Fecha: {self.date_input.date().toPython().strftime('%d/%m/%Y')}</td>
+                            <td style="text-align: right; font-size: 10px; opacity: 0.8; padding-top: 4px;">Estado: {self.factura.estado.value.upper() if self.factura else 'BORRADOR'}</td>
+                        </tr>
+                    </table>
                 </div>
-                {notas_html}
+                <!-- Línea de acento dorada -->
+                <div style="background-color: #d4af37; height: 4px;"></div>
+
+                <div style="padding: 16px;">
+                    <!-- Emisor / Receptor en columnas side-by-side -->
+                    <table width="100%" cellspacing="0" cellpadding="0" style="margin-bottom: 18px; border: none; font-size: 11px;">
+                        <tr>
+                            <td width="48%" valign="top">
+                                <b style="color: #1b2a5a; font-size: 9px; letter-spacing: 0.5px;">EMISOR</b><br/>
+                                <div style="font-weight: bold; font-size: 12px; color: #1b2a5a; margin-top: 3px;">{em_nombre}</div>
+                                <div style="color: #555; margin-top: 2px;">NIF: {em_nif}</div>
+                                <div style="color: #555;">{em_dir}</div>
+                                <div style="color: #555;">{em_cp} {em_ciudad}</div>
+                                <div style="color: #555;">{em_correo}</div>
+                            </td>
+                            <td width="4%"></td>
+                            <td width="48%" valign="top">
+                                <b style="color: #1b2a5a; font-size: 9px; letter-spacing: 0.5px;">RECEPTOR</b><br/>
+                                <div style="font-weight: bold; font-size: 12px; color: #1b2a5a; margin-top: 3px;">{self.client_input.text() or 'Receptor'}</div>
+                                <div style="color: #555; margin-top: 2px;">NIF: {self.nif_input.text() or '—'}</div>
+                                <div style="color: #555;">{self.address_input.text() or '—'}</div>
+                                <div style="color: #555;">{self.email_input.text() or '—'}</div>
+                            </td>
+                        </tr>
+                    </table>
+
+                    <table width="100%" cellspacing="0" cellpadding="0" style="font-size: 11px; margin-bottom: 18px; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background-color: #1b2a5a; color: white;">
+                                <th align="left" style="padding: 6px 8px;">Concepto</th>
+                                <th align="center" style="padding: 6px 8px; width: 40px;">Cant</th>
+                                <th align="right" style="padding: 6px 8px; width: 75px;">Precio</th>
+                                <th align="center" style="padding: 6px 8px; width: 40px;">IVA</th>
+                                <th align="right" style="padding: 6px 8px; width: 80px;">Importe</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {table_rows_html}
+                        </tbody>
+                    </table>
+
+                    <table width="45%" cellspacing="0" cellpadding="0" align="right" style="font-size: 11px; margin-top: 10px;">
+                        <tr>
+                            <td style="padding: 3px 0; color: #7f8c8d;">Base Imponible:</td>
+                            <td align="right" style="color: #2c3e50;">{_money(totals.subtotal)}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 3px 0; color: #7f8c8d;">Impuestos (IVA):</td>
+                            <td align="right" style="color: #2c3e50;">{_money(totals.iva)}</td>
+                        </tr>
+                        <tr style="font-weight: bold; color: #1b2a5a; font-size: 12px;">
+                            <td style="padding-top: 6px; border-top: 1px solid #1b2a5a;">TOTAL:</td>
+                            <td align="right" style="padding-top: 6px; border-top: 1px solid #1b2a5a;">{_money(totals.total)}</td>
+                        </tr>
+                    </table>
+                    <div style="clear: both;"></div>
+
+                    <div style="font-size: 8px; color: #7f8c8d; margin-top: 18px; border-top: 1px solid #eee; padding-top: 6px;">
+                        <b>Registro AEAT (Verifactu):</b> {vf_active} | <b>Envío automático:</b> {em_active}
+                    </div>
+                    {notas_html}
+                </div>
             </div>
             """
 
