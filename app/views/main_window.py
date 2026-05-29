@@ -1124,6 +1124,308 @@ class VoiceRedirectPanel(QFrame):
         self.on_close()
 
 
+class InvoiceDetailDialog(QDialog):
+    def __init__(self, parent: QWidget, factura: Factura, controller: FacturaController) -> None:
+        super().__init__(parent)
+        self.factura = factura
+        self.controller = controller
+        self.action_to_take = None
+        
+        self.setWindowTitle(f"Detalle de Factura - {factura.numero}")
+        self.resize(720, 640)
+        self.setMinimumSize(660, 560)
+        
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #f4f5fb;
+            }
+            QLabel#dialogHeaderTitle {
+                font-size: 20px;
+                font-weight: 800;
+                color: #181a2f;
+            }
+            QLabel#dialogHeaderSub {
+                font-size: 13px;
+                color: #747894;
+            }
+            QFrame#detailPanel {
+                background-color: #ffffff;
+                border: 1px solid #e2e5f1;
+                border-radius: 12px;
+            }
+            QLabel#sectionTitle {
+                font-size: 14px;
+                font-weight: 800;
+                color: #181a2f;
+                margin-top: 10px;
+            }
+            QLabel#detailLabel {
+                font-size: 10px;
+                font-weight: 700;
+                color: #747894;
+            }
+            QLabel#detailValue {
+                font-size: 13px;
+                font-weight: 600;
+                color: #181a2f;
+            }
+            QLabel#statusBadge_borrador {
+                background-color: #fff2d4;
+                color: #d28a00;
+                border-radius: 6px;
+                padding: 4px 10px;
+                font-size: 11px;
+                font-weight: 800;
+            }
+            QLabel#statusBadge_emitida {
+                background-color: #ddf8ef;
+                color: #168a68;
+                border-radius: 6px;
+                padding: 4px 10px;
+                font-size: 11px;
+                font-weight: 800;
+            }
+            QLabel#statusBadge_anulada {
+                background-color: #fff5f7;
+                color: #df3d56;
+                border-radius: 6px;
+                padding: 4px 10px;
+                font-size: 11px;
+                font-weight: 800;
+            }
+            QTableWidget#linesTable {
+                background-color: #ffffff;
+                border: 1px solid #e2e5f1;
+                border-radius: 8px;
+                gridline-color: #edf0f7;
+            }
+            QHeaderView::section {
+                background-color: #fafbff;
+                color: #747894;
+                font-weight: 800;
+                border: none;
+                border-bottom: 1px solid #e2e5f1;
+                font-size: 11px;
+                padding: 6px;
+            }
+            QFrame#totalsBox {
+                background-color: #f8f9ff;
+                border: 1px solid #e2e5f1;
+                border-radius: 8px;
+            }
+        """)
+        
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(24, 24, 24, 24)
+        main_layout.setSpacing(14)
+        
+        # ── Cabecera ──
+        header_row = QHBoxLayout()
+        header_text = QVBoxLayout()
+        header_text.setSpacing(4)
+        
+        title_lbl = QLabel(f"Factura {factura.numero}", self)
+        title_lbl.setObjectName("dialogHeaderTitle")
+        
+        sub_lbl = QLabel(f"Visualización detallada y operaciones de la factura", self)
+        sub_lbl.setObjectName("dialogHeaderSub")
+        
+        header_text.addWidget(title_lbl)
+        header_text.addWidget(sub_lbl)
+        header_row.addLayout(header_text)
+        header_row.addStretch(1)
+        
+        # Badge de estado
+        state_str = factura.estado.value.upper()
+        badge_lbl = QLabel(state_str, self)
+        if "BORRADOR" in state_str:
+            badge_lbl.setObjectName("statusBadge_borrador")
+        elif "CANCELADA" in state_str or "ANULADA" in state_str:
+            badge_lbl.setObjectName("statusBadge_anulada")
+        else:
+            badge_lbl.setObjectName("statusBadge_emitida")
+        badge_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        header_row.addWidget(badge_lbl)
+        main_layout.addLayout(header_row)
+        
+        # ── Panel de Datos (Emisor / Receptor) ──
+        data_panel = QFrame(self)
+        data_panel.setObjectName("detailPanel")
+        panel_layout = QGridLayout(data_panel)
+        panel_layout.setContentsMargins(16, 16, 16, 16)
+        panel_layout.setHorizontalSpacing(24)
+        panel_layout.setVerticalSpacing(10)
+        
+        # Columna Emisor
+        emisor_details = controller.get_emisor_details()
+        self._add_field(panel_layout, 0, 0, "EMISOR", emisor_details.get("nombre", "Mi Empresa S.L."))
+        self._add_field(panel_layout, 1, 0, "NIF EMISOR", emisor_details.get("cif_nif", "B12345678"))
+        self._add_field(panel_layout, 2, 0, "FECHA EMISIÓN", factura.fecha.strftime("%d/%m/%Y"))
+        
+        # Columna Receptor
+        self._add_field(panel_layout, 0, 1, "RECEPTOR", factura.cliente_nombre or "—")
+        self._add_field(panel_layout, 1, 1, "NIF RECEPTOR", factura.cliente_nif or "—")
+        self._add_field(panel_layout, 2, 1, "EMAIL CLIENTE", factura.cliente_email or "—")
+        
+        main_layout.addWidget(data_panel)
+        
+        # ── Tabla de Líneas de Factura ──
+        table_lbl = QLabel("ARTÍCULOS / SERVICIOS", self)
+        table_lbl.setObjectName("sectionTitle")
+        main_layout.addWidget(table_lbl)
+        
+        self.lines_table = QTableWidget(len(factura.lineas), 4, self)
+        self.lines_table.setObjectName("linesTable")
+        self.lines_table.setHorizontalHeaderLabels(["Descripción", "Cant.", "Precio Unit.", "Subtotal"])
+        self.lines_table.verticalHeader().setVisible(False)
+        self.lines_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.lines_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.lines_table.setShowGrid(False)
+        self.lines_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.lines_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.lines_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.lines_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.lines_table.setMinimumHeight(140)
+        self.lines_table.setAlternatingRowColors(True)
+        
+        for idx, line in enumerate(factura.lineas):
+            self.lines_table.setItem(idx, 0, QTableWidgetItem(line.descripcion))
+            qty_item = QTableWidgetItem(str(line.cantidad))
+            qty_item.setTextAlignment(int(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter))
+            self.lines_table.setItem(idx, 1, qty_item)
+            
+            price_item = QTableWidgetItem(_money(line.precio_unitario))
+            price_item.setTextAlignment(int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter))
+            self.lines_table.setItem(idx, 2, price_item)
+            
+            sub = line.cantidad * line.precio_unitario
+            sub_item = QTableWidgetItem(_money(sub))
+            sub_item.setTextAlignment(int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter))
+            self.lines_table.setItem(idx, 3, sub_item)
+            self.lines_table.setRowHeight(idx, 32)
+            
+        main_layout.addWidget(self.lines_table)
+        
+        # ── Bloque de Totales ──
+        totals = calculate_invoice(factura.lineas, amount_paid=factura.importe_pagado)
+        totals_row = QHBoxLayout()
+        totals_row.addStretch(1)
+        
+        totals_box = QFrame(self)
+        totals_box.setObjectName("totalsBox")
+        totals_layout = QGridLayout(totals_box)
+        totals_layout.setContentsMargins(14, 8, 14, 8)
+        totals_layout.setHorizontalSpacing(20)
+        totals_layout.setVerticalSpacing(4)
+        
+        def _add_total(row: int, label: str, value: str, bold: bool = False):
+            lbl = QLabel(label, self)
+            lbl.setStyleSheet(f"font-size: 11px; color: {'#181a2f' if bold else '#747894'}; font-weight: {'bold' if bold else 'normal'};")
+            val = QLabel(value, self)
+            val.setStyleSheet(f"font-size: {'13px' if bold else '11px'}; color: {'#5a50ee' if bold else '#181a2f'}; font-weight: bold;")
+            totals_layout.addWidget(lbl, row, 0)
+            totals_layout.addWidget(val, row, 1, Qt.AlignmentFlag.AlignRight)
+            
+        _add_total(0, "Base Imponible", _money(totals.subtotal))
+        _add_total(1, "IVA", _money(totals.iva))
+        _add_total(2, "TOTAL FACTURA", _money(totals.total), bold=True)
+        
+        totals_row.addWidget(totals_box)
+        main_layout.addLayout(totals_row)
+        
+        # Divider sutil
+        div = QFrame(self)
+        div.setObjectName("themeDivider")
+        main_layout.addWidget(div)
+        
+        # ── Botones de Acciones ──
+        actions_grid = QGridLayout()
+        actions_grid.setSpacing(6)
+        
+        btn_edit = QPushButton("✏️ Editar", self)
+        btn_edit.setObjectName("warningButton")
+        btn_edit.clicked.connect(lambda: self._set_action("edit"))
+        
+        btn_emit = QPushButton("📤 Emitir", self)
+        btn_emit.setObjectName("accentButton")
+        btn_emit.clicked.connect(lambda: self._set_action("emit"))
+        
+        btn_pay = QPushButton("💳 Registrar Cobro", self)
+        btn_pay.setObjectName("ghostButton")
+        btn_pay.clicked.connect(lambda: self._set_action("pay"))
+        
+        btn_email = QPushButton("📧 Enviar Email", self)
+        btn_email.setObjectName("ghostButton")
+        btn_email.clicked.connect(lambda: self._set_action("email"))
+        
+        btn_verifactu = QPushButton("🏛️ Verifactu", self)
+        btn_verifactu.setObjectName("ghostButton")
+        btn_verifactu.clicked.connect(lambda: self._set_action("verifactu"))
+        
+        btn_pdf = QPushButton("📄 Descargar PDF", self)
+        btn_pdf.setObjectName("primaryButton")
+        btn_pdf.clicked.connect(lambda: self._set_action("pdf"))
+        
+        btn_cancel = QPushButton("🚫 Anular", self)
+        btn_cancel.setObjectName("dangerButton")
+        btn_cancel.clicked.connect(lambda: self._set_action("cancel"))
+        
+        btn_delete = QPushButton("🗑️ Eliminar", self)
+        btn_delete.setObjectName("dangerButton")
+        btn_delete.clicked.connect(lambda: self._set_action("delete"))
+        
+        btn_close = QPushButton("Cerrar", self)
+        btn_close.setObjectName("ghostButton")
+        btn_close.clicked.connect(self.reject)
+        
+        # Visibilidad inteligente basada en estado
+        is_borrador = "BORRADOR" in state_str
+        is_anulada = "CANCELADA" in state_str or "ANULADA" in state_str
+        
+        btn_edit.setVisible(is_borrador)
+        btn_emit.setVisible(is_borrador)
+        btn_pay.setVisible(not is_borrador and not is_anulada)
+        btn_email.setVisible(not is_borrador)
+        btn_verifactu.setVisible(not is_borrador)
+        btn_cancel.setVisible(not is_borrador and not is_anulada)
+        btn_delete.setVisible(is_borrador)
+        
+        # Organizar botones en rejilla responsiva
+        actions_grid.addWidget(btn_pdf, 0, 0)
+        actions_grid.addWidget(btn_email, 0, 1)
+        actions_grid.addWidget(btn_verifactu, 0, 2)
+        
+        actions_grid.addWidget(btn_edit, 1, 0)
+        if is_borrador:
+            actions_grid.addWidget(btn_emit, 1, 1)
+        else:
+            actions_grid.addWidget(btn_pay, 1, 1)
+        actions_grid.addWidget(btn_cancel, 1, 2)
+        
+        actions_grid.addWidget(btn_delete, 2, 0)
+        actions_grid.addWidget(btn_close, 2, 2)
+        
+        main_layout.addLayout(actions_grid)
+        
+    def _add_field(self, layout: QGridLayout, row: int, col: int, label: str, value: str):
+        cell_layout = QVBoxLayout()
+        cell_layout.setSpacing(2)
+        
+        lbl = QLabel(label, self)
+        lbl.setObjectName("detailLabel")
+        val = QLabel(value, self)
+        val.setObjectName("detailValue")
+        val.setWordWrap(True)
+        
+        cell_layout.addWidget(lbl)
+        cell_layout.addWidget(val)
+        layout.addLayout(cell_layout, row, col)
+        
+    def _set_action(self, action: str):
+        self.action_to_take = action
+        self.accept()
+
+
 class MainWindow(QMainWindow):
     def __init__(self, session: AuthSession | None = None) -> None:
         super().__init__()
@@ -1710,46 +2012,31 @@ class MainWindow(QMainWindow):
         factura = next((f for f in self.factura_controller.list_facturas() if f.numero == numero), None)
         if factura is None:
             return
-        totals = calculate_invoice(factura.lineas, amount_paid=factura.importe_pagado)
-        detail = QMessageBox(self)
-        detail.setWindowTitle(f"Factura {factura.numero}")
-        detail.setText(
-            f"{factura.numero}\n\n"
-            f"Cliente: {factura.cliente_nombre}\n"
-            f"Fecha: {factura.fecha.isoformat()}\n"
-            f"Estado: {factura.estado.value}\n\n"
-            f"Base imponible: {_money(totals.subtotal)}\n"
-            f"IVA: {_money(totals.iva)}\n"
-            f"Total: {_money(totals.total)}"
-        )
-        edit = detail.addButton("Editar", QMessageBox.ButtonRole.ActionRole)
-        emit = detail.addButton("Emitir", QMessageBox.ButtonRole.ActionRole)
-        pay = detail.addButton("Registrar cobro", QMessageBox.ButtonRole.ActionRole)
-        email = detail.addButton("Enviar email", QMessageBox.ButtonRole.ActionRole)
-        verifactu = detail.addButton("Verifactu", QMessageBox.ButtonRole.ActionRole)
-        pdf = detail.addButton("PDF", QMessageBox.ButtonRole.ActionRole)
-        cancel = detail.addButton("Anular", QMessageBox.ButtonRole.DestructiveRole)
-        delete = detail.addButton("Eliminar", QMessageBox.ButtonRole.DestructiveRole)
-        detail.addButton("Cerrar", QMessageBox.ButtonRole.RejectRole)
-        detail.exec()
-        clicked = detail.clickedButton()
+        
+        dialog = InvoiceDetailDialog(self, factura, self.factura_controller)
+        dialog.exec()
+        
+        clicked = dialog.action_to_take
+        if not clicked:
+            return
+            
         try:
-            if clicked == edit:
+            if clicked == "edit":
                 self.edit_invoice(factura)
-            elif clicked == emit:
+            elif clicked == "emit":
                 self.emit_invoice(factura)
-            elif clicked == pay:
+            elif clicked == "pay":
                 self.register_payment(factura)
-            elif clicked == email:
+            elif clicked == "email":
                 self.send_invoice_email(factura)
-            elif clicked == verifactu:
+            elif clicked == "verifactu":
                 self.register_verifactu(factura)
-            elif clicked == pdf:
+            elif clicked == "pdf":
                 self.generate_pdf(factura)
-            elif clicked == cancel:
+            elif clicked == "cancel":
                 self.factura_controller.cancel_factura(factura.id)
                 self.render_invoices()
-            elif clicked == delete:
+            elif clicked == "delete":
                 self.factura_controller.delete_factura(factura.id)
                 self.render_invoices()
         except Exception as exc:
