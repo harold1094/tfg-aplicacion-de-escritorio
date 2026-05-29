@@ -347,12 +347,13 @@ class InvoiceFormPanel(QFrame):
         form_layout.addWidget(lines_card)
 
         # ── Plantilla PDF ──────────────────────────────────────────────────────────
-        # Cargar plantilla guardada de QSettings si existe para esta factura (equivalente a localStorage de la web)
-        self._selected_template = "classic"
+        # Cargar plantilla guardada de QSettings si existe para esta factura o usar el valor predeterminado global
+        from PySide6.QtCore import QSettings
+        qsettings = QSettings("Automalize", "DesktopApp")
+        default_tmpl = str(qsettings.value("default_template", "classic"))
+        self._selected_template = default_tmpl
         if factura:
-            from PySide6.QtCore import QSettings
-            qsettings = QSettings("Automalize", "DesktopApp")
-            self._selected_template = qsettings.value(f"invoice_template_{factura.id}", "classic")
+            self._selected_template = str(qsettings.value(f"invoice_template_{factura.id}", default_tmpl))
 
         self._template_buttons: dict[str, QPushButton] = {}
         template_card = QFrame()
@@ -569,6 +570,14 @@ class InvoiceFormPanel(QFrame):
     # ── Selector de plantilla ──────────────────────────────────────────────────
     def _select_template(self, template_id: str) -> None:
         self._selected_template = template_id
+        
+        # Guardar en local storage (QSettings) de forma proactiva al hacer clic
+        from PySide6.QtCore import QSettings
+        qsettings = QSettings("Automalize", "DesktopApp")
+        qsettings.setValue("default_template", template_id)
+        if self.factura:
+            qsettings.setValue(f"invoice_template_{self.factura.id}", template_id)
+            
         for tid, btn in self._template_buttons.items():
             is_sel = tid == template_id
             btn.setChecked(is_sel)
@@ -2182,7 +2191,8 @@ class MainWindow(QMainWindow):
     def generate_pdf(self, factura: Factura) -> Path:
         from PySide6.QtCore import QSettings
         qsettings = QSettings("Automalize", "DesktopApp")
-        template = qsettings.value(f"invoice_template_{factura.id}", "classic")
+        default_tmpl = str(qsettings.value("default_template", "classic"))
+        template = str(qsettings.value(f"invoice_template_{factura.id}", default_tmpl))
         emisor_details = self.factura_controller.get_emisor_details()
         path = generate_invoice_pdf(factura, Path.cwd() / "exports" / "pdf", template=template, emisor_details=emisor_details)
         QMessageBox.information(self, "PDF generado", f"Archivo generado:\n{path}")
@@ -2192,7 +2202,8 @@ class MainWindow(QMainWindow):
     def send_invoice_email(self, factura: Factura) -> None:
         from PySide6.QtCore import QSettings
         qsettings = QSettings("Automalize", "DesktopApp")
-        template = qsettings.value(f"invoice_template_{factura.id}", "classic")
+        default_tmpl = str(qsettings.value("default_template", "classic"))
+        template = str(qsettings.value(f"invoice_template_{factura.id}", default_tmpl))
         emisor_details = self.factura_controller.get_emisor_details()
         path = generate_invoice_pdf(factura, Path.cwd() / "exports" / "pdf", template=template, emisor_details=emisor_details)
         self.email_service.send_invoice(factura, path)

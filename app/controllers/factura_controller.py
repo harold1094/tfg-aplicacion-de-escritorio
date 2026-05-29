@@ -189,7 +189,18 @@ class FacturaController:
         if self.supabase is not None and self.emisor_id:
             line = lineas[0]
             totals = calculate_invoice(lineas)
+            cliente_id = self._find_or_create_cliente_id(
+                cliente_nombre,
+                cliente_email,
+                cliente_nif,
+                cliente_direccion,
+            )
             payload = {
+                "id_cliente": cliente_id,
+                "receptor_nombre": cliente_nombre or None,
+                "receptor_cif_nif": cliente_nif or None,
+                "receptor_email": cliente_email or None,
+                "receptor_direccion": cliente_direccion or None,
                 "fecha_emision": fecha.isoformat(),
                 "descripcion_general": _general_description(lineas),
                 "descripcion_producto_servicio": line.descripcion,
@@ -506,6 +517,10 @@ class FacturaController:
         payload = {
             "id_emisor": self.emisor_id,
             "id_cliente": cliente_id,
+            "receptor_nombre": cliente_nombre or None,
+            "receptor_cif_nif": cliente_nif or None,
+            "receptor_email": cliente_email or None,
+            "receptor_direccion": cliente_direccion or None,
             "serie": serie,
             "numero_factura": numero,
             "fecha_emision": fecha.isoformat(),
@@ -571,15 +586,16 @@ class FacturaController:
             response = query.limit(1).execute()
             if response.data:
                 return str(response.data[0].get("id"))
-            if cliente_nif or cliente_email:
+            
+            if cliente_nombre.strip():
                 created = (
                     self.supabase.table(self.CLIENTES_TABLE_NAME)
                     .insert(
                         {
-                            "nombre": cliente_nombre,
-                            "cif_nif_nie": cliente_nif or None,
-                            "direccion_completa": cliente_direccion or None,
-                            "correo_electronico": cliente_email or None,
+                            "nombre": cliente_nombre.strip(),
+                            "cif_nif_nie": cliente_nif.strip() or None,
+                            "direccion_completa": cliente_direccion.strip() or None,
+                            "correo_electronico": cliente_email.strip() or None,
                         }
                     )
                     .execute()
