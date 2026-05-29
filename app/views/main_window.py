@@ -9,7 +9,7 @@ from typing import Callable
 
 from PySide6.QtCore import QDate, Qt, QThread, QTimer, QUrl
 from PySide6.QtCore import Signal as QtSignal
-from PySide6.QtGui import QColor, QDesktopServices, QFont
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -62,6 +62,11 @@ from app.views.clientes_view import ClientesView
 from app.views.productos_view import ProductosView
 
 
+ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
+BRAND_ICON_PATH = ASSETS_DIR / "automanize-1.ico"
+BRAND_LOGO_PATH = ASSETS_DIR / "automanize-1.png"
+
+
 # ============================================================
 # OCR Worker — runs in background thread so UI stays alive
 # ============================================================
@@ -79,6 +84,14 @@ class OcrWorker(QThread):
             self.finished.emit(draft)
         except Exception as exc:  # noqa: BLE001
             self.error.emit(str(exc))
+
+
+class OcrDependencyWorker(QThread):
+    finished: QtSignal = QtSignal(bool, str)
+
+    def run(self) -> None:  # noqa: D401
+        ok, message = OcrService.ensure_image_ocr_installed()
+        self.finished.emit(ok, message)
 
 
 class DropZoneFrame(QFrame):
@@ -1512,6 +1525,10 @@ class MainWindow(QMainWindow):
     def __init__(self, session: AuthSession | None = None) -> None:
         super().__init__()
         self.setWindowTitle("Automalize - Escritorio")
+        if BRAND_ICON_PATH.exists():
+            self.setWindowIcon(QIcon(str(BRAND_ICON_PATH)))
+        elif BRAND_LOGO_PATH.exists():
+            self.setWindowIcon(QIcon(str(BRAND_LOGO_PATH)))
         self.resize(1320, 820)
         self.setMinimumSize(1100, 680)
         self.session = session
@@ -1547,8 +1564,20 @@ class MainWindow(QMainWindow):
 
         brand = QHBoxLayout()
         brand.setSpacing(10)
-        avatar = QLabel("A")
+        avatar = QLabel()
         avatar.setObjectName("brandAvatar")
+        logo_pixmap = QPixmap(str(BRAND_LOGO_PATH))
+        if not logo_pixmap.isNull():
+            avatar.setPixmap(
+                logo_pixmap.scaled(
+                    42,
+                    42,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+            )
+        else:
+            avatar.setText("A")
         self.logo = QLabel("Automalize")
         self.logo.setObjectName("logo")
         brand_text = QVBoxLayout()
@@ -2235,7 +2264,9 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentWidget(self.import_page)
         layout = self.clear_page(self.import_page)
         self._ocr_worker: OcrWorker | None = None
+        self._ocr_dependency_worker: OcrDependencyWorker | None = None
         self._ocr_current_source: str = ""  # "Ticket" or "PDF"
+        self._ocr_pending_path: str = ""
 
         # ── Header (centrado, igual que la referencia) ──────────────────
         header_wrapper = QWidget()
@@ -2437,6 +2468,10 @@ class MainWindow(QMainWindow):
         self._tab_pdf.clicked.connect(lambda: _switch_tab(1))
 
     def _process_file(self, path: str, source: str) -> None:
+        if source == "Ticket" and not OcrService.image_ocr_ready():
+            self._ensure_ticket_ocr_dependency(path, source)
+            return
+
         self._ocr_current_source = source
         self._show_processing(source)
 
@@ -2444,6 +2479,36 @@ class MainWindow(QMainWindow):
         worker.finished.connect(self._on_ocr_done)
         worker.error.connect(self._on_ocr_error)
         self._ocr_worker = worker
+        worker.start()
+
+    def _ensure_ticket_ocr_dependency(self, path: str, source: str) -> None:
+        self._ocr_pending_path = path
+        self._ocr_current_source = source
+
+        if not OcrService.can_auto_install_image_ocr():
+            QMessageBox.critical(
+                self,
+                "OCR no disponible",
+                "Esta instalacion no tiene Tesseract OCR y no se pudo preparar automaticamente. "
+                "Instalalo en el sistema o define TESSERACT_CMD.",
+            )
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "Instalar OCR",
+            "Hace falta instalar Tesseract OCR para leer imagenes. "
+            "La aplicacion puede instalarlo automaticamente ahora. ¿Quieres continuar?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        self._show_processing("INSTALL_OCR")
+        worker = OcrDependencyWorker()
+        worker.finished.connect(self._on_ocr_dependency_ready)
+        self._ocr_dependency_worker = worker
         worker.start()
 
     def _pick_file(self, source: str) -> None:
@@ -2465,7 +2530,10 @@ class MainWindow(QMainWindow):
         self._mode_stack.setVisible(False)
         self._result_panel.setVisible(False)
         self._proc_panel.setVisible(True)
-        if source == "PDF":
+        if source == "INSTALL_OCR":
+            self._proc_title.setText("Preparando OCR del sistema...")
+            self._proc_detail.setText("Instalando Tesseract automaticamente. Esto puede tardar un minuto.")
+        elif source == "PDF":
             self._proc_title.setText("Extrayendo texto del PDF...")
             self._proc_detail.setText("Leyendo las páginas del documento")
         else:
@@ -2493,6 +2561,22 @@ class MainWindow(QMainWindow):
         self._proc_panel.setVisible(False)
         self._mode_stack.setVisible(True)
         QMessageBox.critical(self, "Error al procesar", message)
+
+    def _on_ocr_dependency_ready(self, ok: bool, message: str) -> None:
+        self._proc_panel.setVisible(False)
+        self._mode_stack.setVisible(True)
+        self._ocr_dependency_worker = None
+
+        if not ok:
+            QMessageBox.critical(self, "OCR no disponible", message)
+            return
+
+        pending_path = self._ocr_pending_path
+        source = self._ocr_current_source or "Ticket"
+        self._ocr_pending_path = ""
+        QMessageBox.information(self, "OCR listo", message)
+        if pending_path:
+            self._process_file(pending_path, source)
 
     def _show_result(self, draft: object) -> None:  # draft: OcrDraft
         """Populate and show the result panel — mirrors showResult() in scan-qr.js."""
@@ -2873,15 +2957,15 @@ QFrame#sidebar {
     border-right: 1px solid #24263c;
 }
 QLabel#brandAvatar {
-    background: #6157f4;
+    background: transparent;
     color: #ffffff;
-    border-radius: 8px;
-    min-width: 34px;
-    min-height: 34px;
-    max-width: 34px;
-    max-height: 34px;
+    border: none;
+    min-width: 42px;
+    min-height: 42px;
+    max-width: 42px;
+    max-height: 42px;
     qproperty-alignment: AlignCenter;
-    font-size: 18px;
+    font-size: 16px;
     font-weight: 800;
 }
 QLabel#logo {

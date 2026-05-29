@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import subprocess
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -13,6 +16,10 @@ from app.models.factura import LineaFactura
 
 EURO = "\u20ac"
 DEFAULT_TAX_RATE = Decimal("0.21")
+WINDOWS_TESSERACT_WINGET_IDS = (
+    "tesseract-ocr.tesseract",
+    "UB-Mannheim.TesseractOCR",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +64,67 @@ class OcrService:
     SUPPORTED_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp", ".tif", ".tiff"}
     SUPPORTED_PDF_SUFFIXES = {".pdf"}
     SUPPORTED_TEXT_SUFFIXES = {".txt"}
+
+    @staticmethod
+    def image_ocr_ready() -> bool:
+        return find_tesseract_executable() is not None
+
+    @staticmethod
+    def can_auto_install_image_ocr() -> bool:
+        return os.name == "nt" and shutil.which("winget") is not None
+
+    @staticmethod
+    def ensure_image_ocr_installed() -> tuple[bool, str]:
+        executable = find_tesseract_executable()
+        if executable is not None:
+            return True, f"Tesseract listo en {executable}"
+
+        if os.name != "nt":
+            return False, "Tesseract OCR no esta instalado. Instala el binario del sistema para habilitar OCR de imagenes."
+
+        winget_path = shutil.which("winget")
+        if winget_path is None:
+            return False, "No se encontro winget para instalar Tesseract automaticamente."
+
+        last_error = ""
+        for package_id in WINDOWS_TESSERACT_WINGET_IDS:
+            command = [
+                winget_path,
+                "install",
+                "--exact",
+                "--id",
+                package_id,
+                "--accept-source-agreements",
+                "--accept-package-agreements",
+                "--silent",
+            ]
+            try:
+                completed = subprocess.run(
+                    command,
+                    capture_output=True,
+                    text=True,
+                    timeout=900,
+                    check=False,
+                )
+            except Exception as exc:  # pragma: no cover - OS level dependency
+                last_error = str(exc)
+                continue
+
+            executable = find_tesseract_executable()
+            if completed.returncode == 0 and executable is not None:
+                return True, f"Tesseract instalado correctamente en {executable}"
+
+            output = "\n".join(
+                part.strip()
+                for part in (completed.stdout, completed.stderr)
+                if part and part.strip()
+            )
+            last_error = output or f"winget devolvio codigo {completed.returncode}"
+
+        return False, (
+            "No se pudo instalar Tesseract automaticamente. "
+            f"Detalle: {last_error or 'sin informacion adicional'}"
+        )
 
     def prepare_import(self, file_path: str | Path) -> OcrDraft:
         path = Path(file_path)
@@ -118,15 +186,45 @@ def _extract_text_from_image(path: Path) -> str:
     except ImportError as exc:  # pragma: no cover - depends on optional runtime deps
         raise RuntimeError("Faltan Pillow y pytesseract para OCR de imagenes.") from exc
 
+    _configure_tesseract_binary(pytesseract)
+
     try:
         with Image.open(path) as image:
             return pytesseract.image_to_string(image, lang="spa+eng").strip()
     except pytesseract.TesseractNotFoundError as exc:  # pragma: no cover - local binary dependent
         raise RuntimeError(
-            "Tesseract OCR no esta instalado o no esta en PATH. Instala Tesseract para leer imagenes."
+            "Tesseract OCR no esta instalado o no esta en PATH. Instala Tesseract y, si hace falta, define TESSERACT_CMD."
         ) from exc
     except pytesseract.TesseractError as exc:  # pragma: no cover - local language data dependent
         raise RuntimeError("No se pudo ejecutar Tesseract OCR con los idiomas spa+eng.") from exc
+
+
+def _configure_tesseract_binary(pytesseract_module: object) -> None:
+    executable = find_tesseract_executable()
+    if executable is not None:
+        pytesseract_module.pytesseract.tesseract_cmd = str(executable)
+
+
+def find_tesseract_executable() -> Path | None:
+    configured_path = os.getenv("TESSERACT_CMD", "").strip()
+    candidate_paths = [configured_path] if configured_path else []
+
+    resolved_from_path = shutil.which("tesseract")
+    if resolved_from_path:
+        candidate_paths.append(resolved_from_path)
+
+    candidate_paths.extend(
+        [
+            r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+            r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+            str(Path.home() / "AppData" / "Local" / "Programs" / "Tesseract-OCR" / "tesseract.exe"),
+        ]
+    )
+
+    for candidate in candidate_paths:
+        if candidate and Path(candidate).exists():
+            return Path(candidate)
+    return None
 
 
 def parse_invoice_text(text: str) -> ParsedInvoiceText:

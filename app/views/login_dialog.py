@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QDialog,
     QFormLayout,
@@ -16,12 +19,21 @@ from PySide6.QtWidgets import (
 from app.services.auth_service import AuthService, AuthSession
 
 
+ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
+BRAND_ICON_PATH = ASSETS_DIR / "automanize-1.ico"
+BRAND_LOGO_PATH = ASSETS_DIR / "automanize-1.png"
+
+
 class LoginDialog(QDialog):
     def __init__(self, auth_service: AuthService, parent=None) -> None:
         super().__init__(parent)
         self.auth_service = auth_service
         self.session: AuthSession | None = None
         self.setWindowTitle("Iniciar sesion")
+        if BRAND_ICON_PATH.exists():
+            self.setWindowIcon(QIcon(str(BRAND_ICON_PATH)))
+        elif BRAND_LOGO_PATH.exists():
+            self.setWindowIcon(QIcon(str(BRAND_LOGO_PATH)))
         self.setMinimumWidth(420)
 
         layout = QVBoxLayout(self)

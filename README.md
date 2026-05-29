@@ -230,7 +230,8 @@ Actualmente:
 
 - el usuario puede subir imagen o PDF
 - `ocr_service.py` extrae texto de PDF con `pypdf`
-- las imágenes se procesan con `pytesseract` y Tesseract OCR instalado en el sistema
+- las imágenes se procesan con `pytesseract` y Tesseract OCR
+- en Windows, la aplicación intenta instalar Tesseract automáticamente si falta, tanto al arrancar con `iniciar_aplicacion.bat` como al usar la importación por imagen
 - el parser detecta proveedor, NIF/CIF, dirección, fecha, líneas, IVA y total cuando aparecen en el texto
 - se crea un borrador revisable y se abre el modal de edición
 
@@ -303,6 +304,14 @@ pip install -r requirements.txt
 python -m app.main
 ```
 
+En Windows también puedes usar:
+
+```powershell
+.\iniciar_aplicacion.bat
+```
+
+Ese lanzador prepara la `.venv`, instala dependencias Python y hace un intento automático de dejar listo el OCR de imágenes.
+
 ## Tests
 
 Los tests actuales comprueban especialmente la lógica crítica del dominio y varios servicios nuevos.
@@ -355,7 +364,7 @@ Ahora mismo el proyecto ya tiene:
 
 Sigue habiendo puntos pendientes o parcialmente preparados:
 
-- el OCR de imágenes requiere Tesseract instalado en el sistema
+- el OCR de imágenes depende de Tesseract; en Windows la app intenta instalarlo automáticamente, pero en otros sistemas sigue siendo necesario tener el binario disponible
 - Verifactu depende de credenciales reales
 - algunas adaptaciones visuales todavía pueden requerir refinado
 - la cobertura de tests está centrada en la lógica crítica, no en toda la UI

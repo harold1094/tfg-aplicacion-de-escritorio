@@ -21,19 +21,20 @@ class AuthService:
 
     def __init__(self, supabase: Any | None = None) -> None:
         self.settings = get_settings()
-        self.supabase = supabase if supabase is not None else get_supabase_client()
+        self.supabase = supabase
 
     def is_configured(self) -> bool:
-        return self.supabase is not None and self.settings.supabase_configured
+        return self.settings.supabase_configured
 
     def login(self, email: str, password: str) -> AuthSession:
-        if self.supabase is None:
+        supabase = self._get_supabase()
+        if supabase is None:
             raise RuntimeError("Supabase no está configurado. Revisa SUPABASE_URL y SUPABASE_KEY.")
         if not email or not password:
             raise RuntimeError("Debes introducir email y contrasena.")
 
         try:
-            response = self.supabase.auth.sign_in_with_password({"email": email, "password": password})
+            response = supabase.auth.sign_in_with_password({"email": email, "password": password})
         except Exception as exc:
             message = str(exc).lower()
             if any(
@@ -59,8 +60,9 @@ class AuthService:
         )
 
     def logout(self) -> None:
-        if self.supabase is not None:
-            self.supabase.auth.sign_out()
+        supabase = self._get_supabase(silent=True)
+        if supabase is not None:
+            supabase.auth.sign_out()
 
     def _resolve_emisor_id(self, email: str) -> str:
         """Busca un emisor razonable cuando el JWT no lleva id_emisor.
@@ -70,12 +72,13 @@ class AuthService:
         no cargará datos de un emisor hasta que exista esa relación.
         """
 
-        if self.supabase is None or not email:
+        supabase = self._get_supabase(silent=True)
+        if supabase is None or not email:
             return ""
 
         try:
             response = (
-                self.supabase.table("emisores")
+                supabase.table("emisores")
                 .select("id,correo_contacto")
                 .eq("correo_contacto", email)
                 .limit(1)
@@ -86,3 +89,19 @@ class AuthService:
         except Exception:
             return ""
         return ""
+
+    def _get_supabase(self, silent: bool = False) -> Any | None:
+        if self.supabase is not None:
+            return self.supabase
+        if not self.settings.supabase_configured:
+            return None
+
+        try:
+            self.supabase = get_supabase_client()
+            return self.supabase
+        except Exception as exc:
+            if silent:
+                return None
+            raise RuntimeError(
+                "No se pudo conectar con Supabase. Revisa tu conexion, proxy/certificados del sistema o prueba con Python 3.11."
+            ) from exc

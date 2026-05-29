@@ -5,6 +5,7 @@ import pytest
 
 from app.controllers.factura_controller import FacturaController
 from app.models.factura import EstadoFactura, LineaFactura
+from app.services import ocr_service
 from app.services.ocr_service import OcrService
 from app.services.pdf_service import generate_invoice_pdf
 from app.services.verifactu_service import VerifactuService
@@ -70,6 +71,29 @@ def test_ocr_service_extracts_reviewable_draft_from_text(tmp_path):
     assert draft.lineas[0].cantidad == Decimal("2")
     assert draft.lineas[0].precio_unitario == Decimal("1.50")
     assert draft.lineas[0].iva == Decimal("0.10")
+
+
+def test_find_tesseract_executable_prefers_env_path(monkeypatch, tmp_path):
+    fake_tesseract = tmp_path / "tesseract.exe"
+    fake_tesseract.write_text("", encoding="utf-8")
+
+    monkeypatch.setenv("TESSERACT_CMD", str(fake_tesseract))
+    monkeypatch.setattr(ocr_service.shutil, "which", lambda name: None)
+
+    assert ocr_service.find_tesseract_executable() == fake_tesseract
+    assert OcrService.image_ocr_ready() is True
+
+
+def test_ensure_image_ocr_installed_reports_missing_winget(monkeypatch):
+    monkeypatch.delenv("TESSERACT_CMD", raising=False)
+    monkeypatch.setattr(ocr_service, "find_tesseract_executable", lambda: None)
+    monkeypatch.setattr(ocr_service.os, "name", "nt")
+    monkeypatch.setattr(ocr_service.shutil, "which", lambda name: None)
+
+    ok, message = OcrService.ensure_image_ocr_installed()
+
+    assert ok is False
+    assert "winget" in message
 
 
 def test_pdf_generation_creates_file(tmp_path):
