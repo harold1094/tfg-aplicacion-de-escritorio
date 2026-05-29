@@ -662,21 +662,52 @@ class InvoiceFormPanel(QFrame):
         self.update_preview()
 
     def read_lines(self) -> list[LineaFactura]:
-        # Forzar la confirmación de la celda que se esté editando en ese momento para no perder los datos del teclado
+        # Forzar el foco fuera de la tabla para cerrar y confirmar cualquier editor de celda activo
+        self.client_input.setFocus()
         self.lines_table.setCurrentCell(-1, -1)
+        
         lines: list[LineaFactura] = []
         for row in range(self.lines_table.rowCount()):
-            desc = (self.lines_table.item(row, 0).text() if self.lines_table.item(row, 0) else "").strip()
-            qty = Decimal(self.lines_table.item(row, 1).text() if self.lines_table.item(row, 1) else "0")
-            price = Decimal(self.lines_table.item(row, 2).text() if self.lines_table.item(row, 2) else "0")
+            item_desc = self.lines_table.item(row, 0)
+            desc = (item_desc.text().strip() if item_desc else "").strip()
+            
+            # Si la descripción está vacía, ignoramos la línea de forma limpia
+            if not desc:
+                continue
+                
+            # Leer cantidad con un fallback seguro a 1
+            item_qty = self.lines_table.item(row, 1)
+            qty_text = item_qty.text().strip() if item_qty else ""
+            try:
+                # Soporte para comas de decimales comunes en España
+                qty_text = qty_text.replace(",", ".")
+                qty = Decimal(qty_text if qty_text else "1")
+            except Exception:
+                qty = Decimal("1")
+                
+            # Leer precio con un fallback seguro a 0.00
+            item_price = self.lines_table.item(row, 2)
+            price_text = item_price.text().strip() if item_price else ""
+            try:
+                price_text = price_text.replace(",", ".")
+                price = Decimal(price_text if price_text else "0.00")
+            except Exception:
+                price = Decimal("0.00")
+                
+            # Leer IVA
             iva_widget = self.lines_table.cellWidget(row, 3)
             if isinstance(iva_widget, QComboBox):
                 iva = Decimal(str(iva_widget.currentData() or 21)) / Decimal("100")
             else:
                 iva_item = self.lines_table.item(row, 3)
-                iva = Decimal(iva_item.text() if iva_item else "21") / Decimal("100")
-            if desc and qty > 0 and price >= 0:
-                lines.append(LineaFactura(desc, qty, price, iva))
+                iva_text = iva_item.text().strip() if iva_item else ""
+                try:
+                    iva_text = iva_text.replace(",", ".").replace("%", "")
+                    iva = Decimal(iva_text if iva_text else "21") / Decimal("100")
+                except Exception:
+                    iva = Decimal("0.21")
+                    
+            lines.append(LineaFactura(desc, qty, price, iva))
         return lines
 
     def update_preview(self) -> None:
