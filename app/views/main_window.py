@@ -347,7 +347,13 @@ class InvoiceFormPanel(QFrame):
         form_layout.addWidget(lines_card)
 
         # ── Plantilla PDF ──────────────────────────────────────────────────────────
+        # Cargar plantilla guardada de QSettings si existe para esta factura (equivalente a localStorage de la web)
         self._selected_template = "classic"
+        if factura:
+            from PySide6.QtCore import QSettings
+            qsettings = QSettings("Automalize", "DesktopApp")
+            self._selected_template = qsettings.value(f"invoice_template_{factura.id}", "classic")
+
         self._template_buttons: dict[str, QPushButton] = {}
         template_card = QFrame()
         template_card.setObjectName("panel")
@@ -363,7 +369,7 @@ class InvoiceFormPanel(QFrame):
         templates_row = QHBoxLayout()
         templates_row.setSpacing(10)
         for tmpl_id, tmpl_name, tmpl_desc, tmpl_icon in self.PDF_TEMPLATES:
-            is_sel = tmpl_id == "classic"
+            is_sel = tmpl_id == self._selected_template
             btn = QPushButton(f"{tmpl_icon}\n{tmpl_name}\n{tmpl_desc}")
             btn.setCheckable(True)
             btn.setChecked(is_sel)
@@ -656,6 +662,8 @@ class InvoiceFormPanel(QFrame):
         self.update_preview()
 
     def read_lines(self) -> list[LineaFactura]:
+        # Forzar la confirmación de la celda que se esté editando en ese momento para no perder los datos del teclado
+        self.lines_table.setCurrentCell(-1, -1)
         lines: list[LineaFactura] = []
         for row in range(self.lines_table.rowCount()):
             desc = (self.lines_table.item(row, 0).text() if self.lines_table.item(row, 0) else "").strip()
