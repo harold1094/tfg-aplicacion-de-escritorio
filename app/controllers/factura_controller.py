@@ -61,6 +61,42 @@ class FacturaController:
         self.emisor_id = str(emisor_id or "")
         self._local_facturas: list[Factura] | None = None
 
+    def get_emisor_details(self) -> dict[str, Any]:
+        """Obtiene los detalles del emisor de la base de datos Supabase."""
+        if self.supabase is None or not self.emisor_id:
+            return {
+                "nombre": "Mi Empresa S.L.",
+                "nombre_comercial": "Mi Empresa",
+                "cif_nif": "B12345678",
+                "direccion_fiscal": "Calle Principal 1",
+                "correo_contacto": "contacto@miempresa.es",
+                "telefono": "+34 912 345 678",
+                "iban": "ES1234567890123456789012",
+                "codigo_postal": "28001",
+                "ciudad": "Madrid",
+                "provincia": "Madrid",
+                "pais": "España",
+            }
+        try:
+            resp = self.supabase.table("emisores").select("*").eq("id", self.emisor_id).limit(1).execute()
+            if resp.data:
+                return resp.data[0]
+        except Exception:
+            pass
+        return {
+            "nombre": "Mi Empresa S.L.",
+            "nombre_comercial": "Mi Empresa",
+            "cif_nif": "B12345678",
+            "direccion_fiscal": "Calle Principal 1",
+            "correo_contacto": "contacto@miempresa.es",
+            "telefono": "+34 912 345 678",
+            "iban": "ES1234567890123456789012",
+            "codigo_postal": "28001",
+            "ciudad": "Madrid",
+            "provincia": "Madrid",
+            "pais": "España",
+        }
+
     def list_facturas(self) -> list[Factura]:
         if self._local_facturas is not None:
             return self._local_facturas
@@ -206,7 +242,14 @@ class FacturaController:
 
         self._local_facturas = [f for f in self.list_facturas() if f.id != str(factura_id)]
 
-    def emit_factura(self, factura_id: str) -> Factura:
+    def emit_factura(
+        self,
+        factura_id: str,
+        use_verifactu: bool = False,
+        on_verifactu_progress: Any | None = None,
+    ) -> Factura:
+        """Emite la factura.  Si *use_verifactu* es True llama a la API de Verifactu
+        (equivalente a saveInvoice con useVerifactu=true en create-invoice.js)."""
         factura = self.get_factura(factura_id)
         if factura is None:
             raise ValueError("Factura no encontrada")
@@ -226,22 +269,43 @@ class FacturaController:
                 "id_emisor", self.emisor_id
             ).execute()
             self.refresh()
-            return self.get_factura(factura_id) or factura
+            emitted = self.get_factura(factura_id) or factura
+        else:
+            emitted = Factura(
+                id=factura.id,
+                numero=factura.numero.replace("BOR-", "FAC-", 1),
+                cliente_nombre=factura.cliente_nombre,
+                fecha=factura.fecha,
+                estado=EstadoFactura.EMITIDA,
+                lineas=factura.lineas,
+                importe_pagado=factura.importe_pagado,
+                cliente_email=factura.cliente_email,
+                cliente_nif=factura.cliente_nif,
+                cliente_direccion=factura.cliente_direccion,
+                notas=factura.notas,
+            )
+            self._replace_factura(emitted)
 
-        emitted = Factura(
-            id=factura.id,
-            numero=factura.numero.replace("BOR-", "FAC-", 1),
-            cliente_nombre=factura.cliente_nombre,
-            fecha=factura.fecha,
-            estado=EstadoFactura.EMITIDA,
-            lineas=factura.lineas,
-            importe_pagado=factura.importe_pagado,
-            cliente_email=factura.cliente_email,
-            cliente_nif=factura.cliente_nif,
-            cliente_direccion=factura.cliente_direccion,
-            notas=factura.notas,
-        )
-        self._replace_factura(emitted)
+        # ── Flujo Verifactu real ─────────────────────────────────────────────
+        if use_verifactu:
+            try:
+                from app.services.verifactu_service import VerifactuService
+                svc = VerifactuService()
+                result = svc.create(emitted)
+                uuid = result.uuid or ""
+                qr = result.qr or ""
+                url = result.url or ""
+                # Polling hasta que la AEAT responda (max ~2 min)
+                if uuid:
+                    def _progress(attempt: int, total: int) -> None:
+                        if callable(on_verifactu_progress):
+                            on_verifactu_progress(attempt, total)
+                    status = svc.poll_status(uuid, _progress)
+                    url = status.get("resolvedUrl") or url
+                self.attach_verifactu_result(emitted.id, uuid, url, qr)
+            except Exception:  # noqa: BLE001
+                pass  # No bloquear la emisión si Verifactu falla
+
         return emitted
 
     def register_payment(self, factura_id: str, amount: Decimal) -> Factura:
@@ -255,7 +319,7 @@ class FacturaController:
         status = get_invoice_status(totals.total, totals.importe_pagado, factura.estado)
         if self.supabase is not None and self.emisor_id:
             self.supabase.table(self.TABLE_NAME).update(
-                {"importe_pagado": float(totals.importe_pagado), "estado_pago": _estado_to_supabase(status)}
+                {"estado_pago": _estado_to_supabase(status)}
             ).eq("id", factura_id).eq("id_emisor", self.emisor_id).execute()
             self.refresh()
             return self.get_factura(factura_id) or factura
@@ -291,7 +355,6 @@ class FacturaController:
                     "estado_verifactu": None,
                     "fecha_creacion_registro": None,
                     "estado_pago": "borrador",
-                    "importe_pagado": 0,
                 }
             ).eq("id", factura_id).eq("id_emisor", self.emisor_id).execute()
             self.refresh()
@@ -460,7 +523,6 @@ class FacturaController:
             "importe_linea": float(line.cantidad * line.precio_unitario),
             "importe_iva": float(totals.iva),
             "total_factura": float(totals.total),
-            "importe_pagado": 0,
             "notas": notas or None,
         }
         response = self.supabase.table(self.TABLE_NAME).insert(payload).execute()

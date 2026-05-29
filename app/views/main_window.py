@@ -40,6 +40,7 @@ from PySide6.QtWidgets import (
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
+    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
@@ -78,6 +79,49 @@ class OcrWorker(QThread):
             self.finished.emit(draft)
         except Exception as exc:  # noqa: BLE001
             self.error.emit(str(exc))
+
+
+class DropZoneFrame(QFrame):
+    fileDropped = QtSignal(str)
+
+    def __init__(self, source_type: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.source_type = source_type
+        self.setAcceptDrops(True)
+
+    def dragEnterEvent(self, event) -> None:
+        if event.mimeData().hasUrls():
+            urls = event.mimeData().urls()
+            if urls:
+                path = urls[0].toLocalFile()
+                ext = Path(path).suffix.lower()
+                if self.source_type == "PDF" and ext == ".pdf":
+                    event.acceptProposedAction()
+                    self.setProperty("dragOver", True)
+                    self.style().unpolish(self)
+                    self.style().polish(self)
+                elif self.source_type == "Ticket" and ext in [".png", ".jpg", ".jpeg", ".webp", ".bmp"]:
+                    event.acceptProposedAction()
+                    self.setProperty("dragOver", True)
+                    self.style().unpolish(self)
+                    self.style().polish(self)
+
+    def dragLeaveEvent(self, event) -> None:
+        self.setProperty("dragOver", False)
+        self.style().unpolish(self)
+        self.style().polish(self)
+        event.accept()
+
+    def dropEvent(self, event) -> None:
+        self.setProperty("dragOver", False)
+        self.style().unpolish(self)
+        self.style().polish(self)
+        if event.mimeData().hasUrls():
+            urls = event.mimeData().urls()
+            if urls:
+                path = urls[0].toLocalFile()
+                self.fileDropped.emit(path)
+                event.acceptProposedAction()
 
 
 def _money(value: Decimal | int | float | str) -> str:
@@ -136,6 +180,20 @@ class QuickActionCard(QFrame):
 
 
 class InvoiceFormPanel(QFrame):
+    # Tipos de IVA — igual que IVA_RATES en constants.js de la referencia
+    IVA_RATES = [
+        ("21% (General)", 21),
+        ("10% (Reducido)", 10),
+        ("4% (Super reducido)", 4),
+        ("0% (Exento)", 0),
+    ]
+    # Plantillas PDF — igual que PDF_TEMPLATES en constants.js
+    PDF_TEMPLATES = [
+        ("classic",  "Clásica",       "Formal y corporativa",       "📄"),
+        ("modern",   "Moderna",        "Diseño actual con colores",  "🎨"),
+        ("minimal",  "Minimalista",    "Limpia y sencilla",           "✨"),
+    ]
+
     def __init__(
         self,
         parent: QWidget,
@@ -152,8 +210,8 @@ class InvoiceFormPanel(QFrame):
         self.email_service = email_service
         self.factura = factura
         self.setObjectName("invoiceModalCard")
-        self.setMinimumSize(860, 620)
-        self.setMaximumWidth(1280)
+        self.setMinimumSize(900, 680)
+        self.setMaximumWidth(1320)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         root = QHBoxLayout(self)
@@ -172,6 +230,7 @@ class InvoiceFormPanel(QFrame):
         form_layout.setSpacing(18)
         form_scroll.setWidget(form_panel)
 
+        # ── Encabezado ──────────────────────────────────────────────────────────
         heading_row = QHBoxLayout()
         title = QLabel("Editar factura" if factura else "Nueva factura")
         title.setObjectName("dialogTitle")
@@ -188,12 +247,49 @@ class InvoiceFormPanel(QFrame):
         heading_row.addWidget(close_btn)
         form_layout.addLayout(heading_row)
 
+        # ── Datos de la Factura ─────────────────────────────────────────────────
+        details_card = QFrame()
+        details_card.setObjectName("panel")
+        details_layout = QVBoxLayout(details_card)
+        details_layout.setContentsMargins(20, 20, 20, 20)
+        details_layout.setSpacing(16)
+        details_title = QLabel("📋  Datos de la Factura")
+        details_title.setObjectName("sectionTitle")
+        details_layout.addWidget(details_title)
+
         self.date_input = QDateEdit()
         self.date_input.setCalendarPopup(True)
         self.date_input.setDisplayFormat("dd/MM/yyyy")
         self.date_input.setDate(QDate(factura.fecha if factura else date.today()))
         self.type_input = QComboBox()
         self.type_input.addItems(["Factura", "Factura simplificada", "Factura rectificativa"])
+
+        document_form = QFormLayout()
+        document_form.setSpacing(12)
+        document_form.setHorizontalSpacing(18)
+        document_form.addRow("Fecha de emisión", self.date_input)
+        document_form.addRow("Tipo", self.type_input)
+        details_layout.addLayout(document_form)
+        form_layout.addWidget(details_card)
+
+        # ── Datos del Receptor ───────────────────────────────────────────────────
+        receptor_card = QFrame()
+        receptor_card.setObjectName("panel")
+        receptor_layout = QVBoxLayout(receptor_card)
+        receptor_layout.setContentsMargins(20, 20, 20, 20)
+        receptor_layout.setSpacing(14)
+        receptor_title = QLabel("👤  Datos del Receptor")
+        receptor_title.setObjectName("sectionTitle")
+        receptor_layout.addWidget(receptor_title)
+
+        # Selector de cliente existente (igual que cliente-select en create-invoice.js)
+        self._clientes_cache: list[dict] = []
+        self.cliente_combo = QComboBox()
+        self.cliente_combo.addItem("-- Introducir manualmente --", None)
+        self._load_clientes_into_combo()
+        receptor_layout.addWidget(QLabel("Seleccionar Cliente Existente"))
+        receptor_layout.addWidget(self.cliente_combo)
+
         self.client_input = QLineEdit(factura.cliente_nombre if factura else "")
         self.client_input.setPlaceholderText("Cliente S.A.")
         self.nif_input = QLineEdit(factura.cliente_nif if factura else "")
@@ -203,23 +299,6 @@ class InvoiceFormPanel(QFrame):
         self.email_input = QLineEdit(factura.cliente_email if factura else "")
         self.email_input.setPlaceholderText("correo@cliente.es")
 
-        details_card = QFrame()
-        details_card.setObjectName("panel")
-        details_layout = QVBoxLayout(details_card)
-        details_layout.setContentsMargins(20, 20, 20, 20)
-        details_layout.setSpacing(16)
-
-        details_title = QLabel("Datos principales")
-        details_title.setObjectName("sectionTitle")
-        details_layout.addWidget(details_title)
-
-        document_form = QFormLayout()
-        document_form.setSpacing(12)
-        document_form.setHorizontalSpacing(18)
-        document_form.addRow("Fecha de emisión", self.date_input)
-        document_form.addRow("Tipo", self.type_input)
-        details_layout.addLayout(document_form)
-
         client_form = QFormLayout()
         client_form.setSpacing(12)
         client_form.setHorizontalSpacing(18)
@@ -227,22 +306,18 @@ class InvoiceFormPanel(QFrame):
         client_form.addRow("NIF / CIF", self.nif_input)
         client_form.addRow("Dirección", self.address_input)
         client_form.addRow("Email", self.email_input)
-        details_layout.addLayout(client_form)
+        receptor_layout.addLayout(client_form)
+        form_layout.addWidget(receptor_card)
+        self.cliente_combo.currentIndexChanged.connect(self._on_cliente_selected)
 
-        self.auto_email_check = QCheckBox("Enviar email al cliente al emitir")
-        self.auto_email_check.setToolTip(
-            "Genera el PDF y envia la factura automaticamente al emitir, si SMTP esta configurado."
-        )
-        details_layout.addWidget(self.auto_email_check)
-        form_layout.addWidget(details_card)
-
-        lines_label = QLabel("Líneas de factura")
-        lines_label.setObjectName("sectionTitle")
+        # ── Líneas de Factura ──────────────────────────────────────────────────────
         lines_card = QFrame()
         lines_card.setObjectName("panel")
         lines_layout = QVBoxLayout(lines_card)
         lines_layout.setContentsMargins(20, 20, 20, 20)
         lines_layout.setSpacing(14)
+        lines_label = QLabel("📦  Líneas de Factura")
+        lines_label.setObjectName("sectionTitle")
         lines_layout.addWidget(lines_label)
 
         self.lines_table = QTableWidget(0, 5)
@@ -254,7 +329,7 @@ class InvoiceFormPanel(QFrame):
         self.lines_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self.lines_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         self.lines_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.lines_table.setMinimumHeight(250)
+        self.lines_table.setMinimumHeight(220)
         self.lines_table.setAlternatingRowColors(True)
         lines_layout.addWidget(self.lines_table)
 
@@ -271,53 +346,174 @@ class InvoiceFormPanel(QFrame):
         lines_layout.addLayout(line_actions)
         form_layout.addWidget(lines_card)
 
+        # ── Plantilla PDF ──────────────────────────────────────────────────────────
+        self._selected_template = "classic"
+        self._template_buttons: dict[str, QPushButton] = {}
+        template_card = QFrame()
+        template_card.setObjectName("panel")
+        template_layout = QVBoxLayout(template_card)
+        template_layout.setContentsMargins(20, 20, 20, 20)
+        template_layout.setSpacing(14)
+        template_title = QLabel("🎨  Plantilla PDF")
+        template_title.setObjectName("sectionTitle")
+        template_layout.addWidget(template_title)
+        template_sub = QLabel("Elige el estilo visual del PDF generado.")
+        template_sub.setObjectName("viewSubtitle")
+        template_layout.addWidget(template_sub)
+        templates_row = QHBoxLayout()
+        templates_row.setSpacing(10)
+        for tmpl_id, tmpl_name, tmpl_desc, tmpl_icon in self.PDF_TEMPLATES:
+            is_sel = tmpl_id == "classic"
+            btn = QPushButton(f"{tmpl_icon}\n{tmpl_name}\n{tmpl_desc}")
+            btn.setCheckable(True)
+            btn.setChecked(is_sel)
+            btn.setMinimumSize(130, 90)
+            btn.setStyleSheet(
+                f"QPushButton {{ background: {'#ece9ff' if is_sel else '#ffffff'}; "
+                f"border: {'2px solid #5a50ee' if is_sel else '1px solid #e2e5f1'}; "
+                "border-radius: 8px; padding: 10px 8px; font-size: 12px; "
+                "color: #181a2f; text-align: center; white-space: pre; }}"
+                "QPushButton:hover { background: #f0efff; border: 1px solid #bfc5ff; }"
+            )
+            btn.clicked.connect(lambda checked=False, tid=tmpl_id: self._select_template(tid))
+            self._template_buttons[tmpl_id] = btn
+            templates_row.addWidget(btn)
+        templates_row.addStretch(1)
+        template_layout.addLayout(templates_row)
+        form_layout.addWidget(template_card)
+
+        # ── Notas ─────────────────────────────────────────────────────────────────
         self.notes_input = QPlainTextEdit()
         self.notes_input.setPlaceholderText("Notas adicionales...")
-        self.notes_input.setMinimumHeight(110)
-        self.notes_input.setMaximumHeight(140)
+        self.notes_input.setMinimumHeight(90)
+        self.notes_input.setMaximumHeight(130)
         if factura:
-            self.notes_input.setPlainText(factura.notas)
+            self.notes_input.setPlainText(factura.notes if hasattr(factura, 'notes') else factura.notas)
         notes_card = QFrame()
         notes_card.setObjectName("panel")
         notes_layout = QVBoxLayout(notes_card)
         notes_layout.setContentsMargins(20, 20, 20, 20)
         notes_layout.setSpacing(12)
-        notes_title = QLabel("Notas y contexto")
+        notes_title = QLabel("📝  Notas")
         notes_title.setObjectName("sectionTitle")
         notes_layout.addWidget(notes_title)
         notes_layout.addWidget(self.notes_input)
         form_layout.addWidget(notes_card)
 
+        # ── Opciones al emitir ──────────────────────────────────────────────────
+        emit_opts_card = QFrame()
+        emit_opts_card.setObjectName("panel")
+        emit_opts_layout = QVBoxLayout(emit_opts_card)
+        emit_opts_layout.setContentsMargins(20, 20, 20, 20)
+        emit_opts_layout.setSpacing(12)
+        emit_opts_title = QLabel("📤  Opciones al emitir")
+        emit_opts_title.setObjectName("sectionTitle")
+        emit_opts_layout.addWidget(emit_opts_title)
+
+        self.verifactu_check = QCheckBox("Enviar a Verifactu (AEAT)")
+        self.verifactu_check.setChecked(True)
+        vf_sub = QLabel("Registra la factura en la Agencia Tributaria al emitir.")
+        vf_sub.setObjectName("viewSubtitle")
+        vf_sub.setWordWrap(True)
+        self.vf_box = QFrame()
+        self.vf_box.setObjectName("vf_box")
+        self.vf_box.setStyleSheet("QFrame#vf_box { border: 2px solid #5a50ee; border-radius: 8px; background-color: #f4f3ff; }")
+        vf_inner = QVBoxLayout(self.vf_box)
+        vf_inner.setContentsMargins(12, 10, 12, 10)
+        vf_inner.setSpacing(4)
+        vf_row = QHBoxLayout()
+        vf_row.addWidget(self.verifactu_check)
+        vf_row.addStretch(1)
+        vf_inner.addLayout(vf_row)
+        vf_inner.addWidget(vf_sub)
+        emit_opts_layout.addWidget(self.vf_box)
+
+        self.auto_email_check = QCheckBox("Enviar email al cliente")
+        em_sub = QLabel("Envía la factura por email al emitir.")
+        em_sub.setObjectName("viewSubtitle")
+        em_sub.setWordWrap(True)
+        self.em_box = QFrame()
+        self.em_box.setObjectName("em_box")
+        self.em_box.setStyleSheet("QFrame#em_box { border: 1px solid #e2e5f1; border-radius: 8px; background: #fff; }")
+        em_inner = QVBoxLayout(self.em_box)
+        em_inner.setContentsMargins(12, 10, 12, 10)
+        em_inner.setSpacing(6)
+        em_row = QHBoxLayout()
+        em_row.addWidget(self.auto_email_check)
+        em_row.addStretch(1)
+        em_inner.addLayout(em_row)
+        em_inner.addWidget(em_sub)
+
+        # Campo dinámico para introducir/editar el correo del cliente
+        self.auto_email_input = QLineEdit()
+        self.auto_email_input.setPlaceholderText("Introduce el email de envío (ej: correo@cliente.com)...")
+        self.auto_email_input.setObjectName("dynamicEmailInput")
+        self.auto_email_input.setStyleSheet(
+            "QLineEdit#dynamicEmailInput { padding: 8px; border: 1px solid #c5c9f0; "
+            "border-radius: 6px; background-color: #ffffff; color: #181a2f; }"
+        )
+        self.auto_email_input.setVisible(False)
+        em_inner.addWidget(self.auto_email_input)
+        
+        emit_opts_layout.addWidget(self.em_box)
+        form_layout.addWidget(emit_opts_card)
+
+        # Conectar los estados de los checkboxes
+        self.verifactu_check.toggled.connect(self._on_verifactu_toggled)
+        self.auto_email_check.toggled.connect(self._on_email_toggled)
+        self.auto_email_input.textChanged.connect(self.update_preview)
+
+        # Permitir alternar los checkboxes haciendo clic en cualquier parte de la tarjeta
+        def on_vf_click(event):
+            if event.button() == Qt.MouseButton.LeftButton:
+                self.verifactu_check.toggle()
+        self.vf_box.mousePressEvent = on_vf_click
+        self.vf_box.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        # Al hacer clic en la tarjeta del email, se alterna el checkbox, excepto si se hace clic sobre el campo de texto.
+        def on_em_click(event):
+            if event.button() == Qt.MouseButton.LeftButton:
+                pos = event.position().toPoint()
+                child = self.em_box.childAt(pos)
+                if child is not self.auto_email_input:
+                    self.auto_email_check.toggle()
+        self.em_box.mousePressEvent = on_em_click
+        self.em_box.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        # ── Botones de acción ─────────────────────────────────────────────────────
         actions = QHBoxLayout()
         cancel = QPushButton("Cancelar")
         cancel.setObjectName("ghostButton")
         cancel.clicked.connect(self.close_panel)
-        save = QPushButton("Guardar borrador")
-        save.setObjectName("warningButton")
-        save.clicked.connect(self.save)
-        emit = QPushButton("Emitir factura")
-        emit.setObjectName("accentButton")
-        emit.clicked.connect(lambda: self.save(emit=True))
+        save_btn = QPushButton("Guardar borrador")
+        save_btn.setObjectName("warningButton")
+        save_btn.clicked.connect(self.save)
+        emit_btn = QPushButton("Emitir factura")
+        emit_btn.setObjectName("accentButton")
+        emit_btn.clicked.connect(lambda: self.save(emit=True))
         actions.addStretch(1)
         actions.addWidget(cancel)
-        actions.addWidget(save)
-        actions.addWidget(emit)
+        actions.addWidget(save_btn)
+        actions.addWidget(emit_btn)
         form_layout.addLayout(actions)
         form_layout.addStretch(1)
 
+        # ── Vista previa ───────────────────────────────────────────────────────────
         preview_panel = QFrame()
         preview_panel.setObjectName("invoicePreview")
         preview_layout = QVBoxLayout(preview_panel)
         preview_layout.setContentsMargins(24, 24, 24, 24)
         preview_layout.setSpacing(14)
-        preview_header = QLabel("Vista previa")
+        preview_header = QLabel("👁  Vista previa")
         preview_header.setObjectName("sectionTitle")
         preview_layout.addWidget(preview_header)
-        self.preview = QLabel()
+        self.preview = QTextBrowser()
         self.preview.setObjectName("previewText")
-        self.preview.setAlignment(Qt.AlignmentFlag.AlignTop)
-        self.preview.setWordWrap(True)
-        self.preview.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.preview.setFrameShape(QFrame.Shape.NoFrame)
+        self.preview.setStyleSheet(
+            "QTextBrowser { background-color: #ffffff; border: 1.5px solid #e2e5f1; "
+            "border-radius: 8px; padding: 16px; }"
+        )
         preview_layout.addWidget(self.preview)
         preview_layout.addStretch(1)
 
@@ -341,34 +537,111 @@ class InvoiceFormPanel(QFrame):
         self.update_auto_email_state()
         self.update_preview()
 
-    def update_auto_email_state(self) -> None:
-        configured = self.email_service is not None and self.email_service.is_configured()
-        has_email = bool(self.email_input.text().strip())
-        self.auto_email_check.setEnabled(configured and has_email)
-        if not configured:
-            self.auto_email_check.setToolTip("Configura SMTP en .env para enviar emails automaticamente.")
-        elif not has_email:
-            self.auto_email_check.setToolTip("Indica el email del cliente para activar el envio automatico.")
+    def _on_verifactu_toggled(self, checked: bool) -> None:
+        if checked:
+            self.vf_box.setStyleSheet("QFrame#vf_box { border: 2px solid #5a50ee; border-radius: 8px; background-color: #f4f3ff; }")
         else:
-            self.auto_email_check.setToolTip("Genera el PDF y envia la factura automaticamente al emitir.")
-        if not self.auto_email_check.isEnabled():
-            self.auto_email_check.setChecked(False)
+            self.vf_box.setStyleSheet("QFrame#vf_box { border: 1px solid #e2e5f1; border-radius: 8px; background-color: #ffffff; }")
+        self.vf_box.style().unpolish(self.vf_box)
+        self.vf_box.style().polish(self.vf_box)
+        self.vf_box.update()
+        self.update_preview()
 
+    def _on_email_toggled(self, checked: bool) -> None:
+        self.auto_email_input.setVisible(checked)
+        if checked:
+            self.em_box.setStyleSheet("QFrame#em_box { border: 2px solid #5a50ee; border-radius: 8px; background-color: #f4f3ff; }")
+            if not self.auto_email_input.text().strip() and self.email_input.text().strip():
+                self.auto_email_input.setText(self.email_input.text().strip())
+        else:
+            self.em_box.setStyleSheet("QFrame#em_box { border: 1px solid #e2e5f1; border-radius: 8px; background-color: #ffffff; }")
+        self.em_box.style().unpolish(self.em_box)
+        self.em_box.style().polish(self.em_box)
+        self.em_box.update()
+        self.update_preview()
+
+    # ── Selector de plantilla ──────────────────────────────────────────────────
+    def _select_template(self, template_id: str) -> None:
+        self._selected_template = template_id
+        for tid, btn in self._template_buttons.items():
+            is_sel = tid == template_id
+            btn.setChecked(is_sel)
+            btn.setStyleSheet(
+                f"QPushButton {{ background: {'#ece9ff' if is_sel else '#ffffff'}; "
+                f"border: {'2px solid #5a50ee' if is_sel else '1px solid #e2e5f1'}; "
+                "border-radius: 8px; padding: 10px 8px; font-size: 12px; "
+                "color: #181a2f; text-align: center; white-space: pre; }}"
+                "QPushButton:hover { background: #f0efff; border: 1px solid #bfc5ff; }"
+            )
+        self.update_preview()
+
+    # ── Selector de cliente existente ─────────────────────────────────────────
+    def _load_clientes_into_combo(self) -> None:
+        try:
+            if not hasattr(self.controller, 'supabase') or self.controller.supabase is None:
+                return
+            # Cargamos de la tabla de clientes de supabase (clientesEmisor)
+            resp = self.controller.supabase.table("clientesEmisor").select(
+                "id,nombre,cif_nif_nie,direccion_completa,correo_electronico"
+            ).order("nombre").execute()
+            self._clientes_cache = resp.data or []
+            for row in self._clientes_cache:
+                nombre = str(row.get("nombre") or "").strip()
+                if not nombre or nombre == "null":
+                    continue
+                nif = row.get("cif_nif_nie") or ""
+                label = f"{nombre} - {nif}" if nif else nombre
+                self.cliente_combo.addItem(label, row)
+        except Exception:
+            pass
+
+    def _on_cliente_selected(self, index: int) -> None:
+        data = self.cliente_combo.itemData(index)
+        if not data:
+            return
+        self.client_input.setText(str(data.get("nombre") or ""))
+        self.nif_input.setText(str(data.get("cif_nif_nie") or ""))
+        self.address_input.setText(str(data.get("direccion_completa") or ""))
+        self.email_input.setText(str(data.get("correo_electronico") or ""))
+        self.update_preview()
+
+    # ── Activar/desactivar el email de forma inteligente ─────────────────────
+    def update_auto_email_state(self) -> None:
+        # Habilitamos siempre la casilla para que el usuario pueda activarla y rellenar el correo manualmente.
+        self.auto_email_check.setEnabled(True)
+        self.auto_email_check.setToolTip("Envía la factura por email al cliente al emitir.")
+        
+        # Sincronización proactiva: si ya está marcado y el campo está vacío, copiamos el correo principal del receptor
+        if self.auto_email_check.isChecked() and not self.auto_email_input.text().strip():
+            self.auto_email_input.setText(self.email_input.text().strip())
+
+    # ── Gestión de líneas ─────────────────────────────────────────────────────
     def add_line(self, line: LineaFactura | None = None) -> None:
         row = self.lines_table.rowCount()
         self.lines_table.insertRow(row)
-        values = [
-            line.descripcion if line else "",
-            str(line.cantidad if line else 1),
-            str(line.precio_unitario if line else "0.00"),
-            str((line.iva * 100) if line and line.iva <= 1 else (line.iva if line else 21)),
-            "",
-        ]
-        for column, value in enumerate(values):
-            item = QTableWidgetItem(value)
-            if column == 4:
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self.lines_table.setItem(row, column, item)
+        # Descripción
+        self.lines_table.setItem(row, 0, QTableWidgetItem(line.descripcion if line else ""))
+        # Cantidad
+        self.lines_table.setItem(row, 1, QTableWidgetItem(str(line.cantidad if line else 1)))
+        # Precio
+        self.lines_table.setItem(row, 2, QTableWidgetItem(str(line.precio_unitario if line else "0.00")))
+        # IVA — QComboBox con 4 tipos
+        iva_combo = QComboBox()
+        for lbl, val in self.IVA_RATES:
+            iva_combo.addItem(lbl, val)
+        current_iva = 21
+        if line:
+            current_iva = int(float(line.iva * 100) if line.iva <= 1 else float(line.iva))
+        for i in range(iva_combo.count()):
+            if iva_combo.itemData(i) == current_iva:
+                iva_combo.setCurrentIndex(i)
+                break
+        iva_combo.currentIndexChanged.connect(self.update_preview)
+        self.lines_table.setCellWidget(row, 3, iva_combo)
+        # Subtotal (no editable)
+        item_sub = QTableWidgetItem("")
+        item_sub.setFlags(item_sub.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        self.lines_table.setItem(row, 4, item_sub)
         self.update_preview()
 
     def remove_selected_line(self) -> None:
@@ -388,7 +661,12 @@ class InvoiceFormPanel(QFrame):
             desc = (self.lines_table.item(row, 0).text() if self.lines_table.item(row, 0) else "").strip()
             qty = Decimal(self.lines_table.item(row, 1).text() if self.lines_table.item(row, 1) else "0")
             price = Decimal(self.lines_table.item(row, 2).text() if self.lines_table.item(row, 2) else "0")
-            iva = Decimal(self.lines_table.item(row, 3).text() if self.lines_table.item(row, 3) else "21") / Decimal("100")
+            iva_widget = self.lines_table.cellWidget(row, 3)
+            if isinstance(iva_widget, QComboBox):
+                iva = Decimal(str(iva_widget.currentData() or 21)) / Decimal("100")
+            else:
+                iva_item = self.lines_table.item(row, 3)
+                iva = Decimal(iva_item.text() if iva_item else "21") / Decimal("100")
             if desc and qty > 0 and price >= 0:
                 lines.append(LineaFactura(desc, qty, price, iva))
         return lines
@@ -410,25 +688,261 @@ class InvoiceFormPanel(QFrame):
                 )
                 item.setText(subtotal)
         self.lines_table.blockSignals(False)
-        line_text = "\n".join(
-            f"- {line.descripcion} | {line.cantidad} ud. | {_money(line.precio_unitario)}"
-            for line in lines
-        )
+        
+        # Obtener emisor dinámico para la vista previa
+        em_details = self.controller.get_emisor_details()
+        em_nombre = em_details.get("nombre") or "Mi Empresa S.L."
+        em_nif = em_details.get("cif_nif") or "B12345678"
+        em_dir = em_details.get("direccion_fiscal") or "Calle Principal 1"
+        em_cp = em_details.get("codigo_postal") or "28001"
+        em_ciudad = em_details.get("ciudad") or "Madrid"
+        em_correo = em_details.get("correo_contacto") or "contacto@miempresa.es"
+
+        # Generar tabla HTML de artículos
+        table_rows_html = ""
+        for line in lines:
+            iva_pct = float(line.iva * 100) if line.iva <= 1 else float(line.iva)
+            table_rows_html += f"""
+            <tr>
+                <td style="padding: 6px 0; border-bottom: 1px solid #eee;">{line.descripcion}</td>
+                <td style="padding: 6px 0; text-align: center; border-bottom: 1px solid #eee;">{line.cantidad}</td>
+                <td style="padding: 6px 0; text-align: right; border-bottom: 1px solid #eee;">{_money(line.precio_unitario)}</td>
+                <td style="padding: 6px 0; text-align: center; border-bottom: 1px solid #eee;">{iva_pct:.0f}%</td>
+                <td style="padding: 6px 0; text-align: right; border-bottom: 1px solid #eee;">{_money(line.cantidad * line.precio_unitario)}</td>
+            </tr>
+            """
+        if not table_rows_html:
+            table_rows_html = "<tr><td colspan='5' style='text-align: center; color: #999; padding: 12px;'>Añade líneas a la factura</td></tr>"
+
         notas = self.notes_input.toPlainText().strip()
-        self.preview.setText(
-            "FACTURA\n"
-            f"{self.factura.numero if self.factura else 'FAC-XXXX'}\n\n"
-            f"Fecha: {self.date_input.date().toPython().isoformat()}\n"
-            f"Receptor: {self.client_input.text() or 'Receptor'}\n\n"
-            f"NIF/CIF: {self.nif_input.text() or '-'}\n"
-            f"Email: {self.email_input.text() or '-'}\n"
-            f"Direccion: {self.address_input.text() or '-'}\n\n"
-            f"{line_text or 'Añade líneas para ver la previsualización'}\n\n"
-            f"Base imponible: {_money(totals.subtotal)}\n"
-            f"IVA: {_money(totals.iva)}\n"
-            f"TOTAL: {_money(totals.total)}"
-            f"{f'\\n\\nNotas:\\n{notas}' if notas else ''}"
-        )
+        notas_html = f"<div style='margin-top: 14px; padding: 8px; background: #fafafa; border-left: 3px solid #ccc; font-style: italic;'><b>Notas:</b><br/>{notas}</div>" if notas else ""
+
+        # Renderizar en función de la plantilla
+        template = self._selected_template
+        num_factura = self.factura.numero if self.factura else "BOR-XXXX"
+
+        # Checkboxes indicados en la vista previa
+        vf_active = "Sí (AEAT Verifactu)" if self.verifactu_check.isChecked() else "No"
+        em_target = self.auto_email_input.text().strip() or self.email_input.text().strip() or 'cliente'
+        em_active = f"Sí (enviar a {em_target})" if self.auto_email_check.isChecked() else "No"
+
+        if template == "modern":
+            html = f"""
+            <div style="font-family: 'Segoe UI', Arial, sans-serif; color: #181a2f; padding: 4px;">
+                <!-- Cabecera moderna morada -->
+                <div style="background-color: #6256f4; color: white; padding: 16px; border-radius: 8px; margin-bottom: 14px;">
+                    <table width="100%" cellspacing="0" cellpadding="0" style="color: white; border: none;">
+                        <tr>
+                            <td><b style="font-size: 16px; letter-spacing: 0.5px;">✨ FACTURA MODERNA</b></td>
+                            <td style="text-align: right;"><b style="font-size: 14px;">{num_factura}</b></td>
+                        </tr>
+                        <tr>
+                            <td style="font-size: 11px; opacity: 0.9; padding-top: 4px;">Fecha: {self.date_input.date().toPython().isoformat()}</td>
+                            <td style="text-align: right; font-size: 11px; opacity: 0.9; padding-top: 4px;">Verifactu: {vf_active}</td>
+                        </tr>
+                    </table>
+                </div>
+
+                <!-- Cards Emisor / Receptor en columnas side-by-side -->
+                <table width="100%" cellspacing="0" cellpadding="0" style="margin-bottom: 14px; border: none;">
+                    <tr>
+                        <td width="48%" valign="top" style="background-color: #fcfbff; border: 1px solid #e2e5f1; border-radius: 8px; padding: 10px;">
+                            <b style="color: #8e2de2; font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px;">EMISOR</b>
+                            <div style="font-size: 13px; font-weight: bold; color: #181a2f; margin-top: 4px;">{em_nombre}</div>
+                            <div style="font-size: 10px; color: #5d617d; margin-top: 4px;"><b>NIF:</b> {em_nif}</div>
+                            <div style="font-size: 10px; color: #5d617d;"><b>Dir:</b> {em_dir}</div>
+                            <div style="font-size: 10px; color: #5d617d;"><b>Email:</b> {em_correo}</div>
+                        </td>
+                        <td width="4%"></td>
+                        <td width="48%" valign="top" style="background-color: #f7fcf9; border: 1px solid #c8e6d9; border-radius: 8px; padding: 10px;">
+                            <b style="color: #069c6e; font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px;">RECEPTOR</b>
+                            <div style="font-size: 13px; font-weight: bold; color: #181a2f; margin-top: 4px;">{self.client_input.text() or 'Receptor'}</div>
+                            <div style="font-size: 10px; color: #5d617d; margin-top: 4px;"><b>NIF:</b> {self.nif_input.text() or '-'}</div>
+                            <div style="font-size: 10px; color: #5d617d;"><b>Dir:</b> {self.address_input.text() or '-'}</div>
+                            <div style="font-size: 10px; color: #5d617d;"><b>Email:</b> {self.email_input.text() or '-'}</div>
+                        </td>
+                    </tr>
+                </table>
+
+                <!-- Tabla de artículos -->
+                <table width="100%" cellspacing="0" cellpadding="0" style="font-size: 11px; margin-bottom: 14px; border-collapse: collapse;">
+                    <thead>
+                        <tr style="color: #8e2de2; font-weight: bold; border-bottom: 2px solid #8e2de2;">
+                            <th align="left" style="padding-bottom: 6px;">Concepto</th>
+                            <th align="center" style="padding-bottom: 6px; width: 35px;">Cant</th>
+                            <th align="right" style="padding-bottom: 6px; width: 70px;">Precio</th>
+                            <th align="center" style="padding-bottom: 6px; width: 35px;">IVA</th>
+                            <th align="right" style="padding-bottom: 6px; width: 75px;">Importe</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {table_rows_html}
+                    </tbody>
+                </table>
+
+                <!-- Totales modernos -->
+                <div style="background-color: #f8f9ff; border-radius: 6px; padding: 10px; margin-top: 10px; border: 1px solid #e2e5f1;">
+                    <table width="100%" cellspacing="0" cellpadding="0" style="font-size: 11px;">
+                        <tr>
+                            <td style="color: #5d617d;">Base Imponible:</td>
+                            <td align="right" style="color: #181a2f;">{_money(totals.subtotal)}</td>
+                        </tr>
+                        <tr>
+                            <td style="color: #5d617d; padding-top: 4px;">IVA:</td>
+                            <td align="right" style="color: #181a2f; padding-top: 4px;">{_money(totals.iva)}</td>
+                        </tr>
+                        <tr style="font-weight: bold; font-size: 13px; color: #8e2de2;">
+                            <td style="padding-top: 8px; border-top: 1px solid #e2e5f1;">TOTAL:</td>
+                            <td align="right" style="padding-top: 8px; border-top: 1px solid #e2e5f1;">{_money(totals.total)}</td>
+                        </tr>
+                    </table>
+                </div>
+
+                <div style="font-size: 9px; color: #747894; margin-top: 12px; border-top: 1px dashed #ddd; padding-top: 6px;">
+                    <b>AEAT Registro:</b> {vf_active} | <b>Email automático:</b> {em_active}
+                </div>
+                {notas_html}
+            </div>
+            """
+        elif template == "minimal":
+            html = f"""
+            <div style="font-family: 'Segoe UI', Arial, sans-serif; color: #222; padding: 4px;">
+                <!-- Estilo minimalista -->
+                <div style="border-bottom: 2px solid #222; padding-bottom: 8px; margin-bottom: 14px;">
+                    <table width="100%" cellspacing="0" cellpadding="0">
+                        <tr>
+                            <td><span style="font-size: 18px; letter-spacing: 1px; font-weight: bold;">🌱 FACTURA MINIMALISTA</span></td>
+                            <td style="text-align: right; font-size: 12px;">Nº {num_factura}</td>
+                        </tr>
+                    </table>
+                </div>
+
+                <table width="100%" cellspacing="0" cellpadding="0" style="font-size: 10px; margin-bottom: 14px; line-height: 1.4;">
+                    <tr>
+                        <td width="50%" valign="top">
+                            <b>DE:</b><br/>
+                            {em_nombre}<br/>
+                            NIF: {em_nif}<br/>
+                            {em_dir}, {em_cp} {em_ciudad}
+                        </td>
+                        <td width="50%" align="right" valign="top">
+                            <b>PARA:</b><br/>
+                            {self.client_input.text() or 'Receptor'}<br/>
+                            NIF: {self.nif_input.text() or '-'}<br/>
+                            Dir: {self.address_input.text() or '-'}<br/>
+                            Email: {self.email_input.text() or '-'}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding-top: 8px;"><b>Fecha:</b> {self.date_input.date().toPython().isoformat()}</td>
+                        <td align="right" style="padding-top: 8px;"><b>Verifactu:</b> {vf_active}</td>
+                    </tr>
+                </table>
+
+                <table width="100%" cellspacing="0" cellpadding="0" style="font-size: 10px; margin-bottom: 14px; border-top: 1px solid #111; border-bottom: 1px solid #111;">
+                    <thead>
+                        <tr style="font-weight: bold;">
+                            <th align="left" style="padding: 5px 0;">DESCRIPCIÓN</th>
+                            <th align="center" style="padding: 5px 0; width: 35px;">CANT</th>
+                            <th align="right" style="padding: 5px 0; width: 70px;">PRECIO</th>
+                            <th align="center" style="padding: 5px 0; width: 35px;">IVA</th>
+                            <th align="right" style="padding: 5px 0; width: 75px;">TOTAL</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {table_rows_html}
+                    </tbody>
+                </table>
+
+                <table width="100%" cellspacing="0" cellpadding="0" style="font-size: 10px; line-height: 1.5;">
+                    <tr>
+                        <td style="color: #555;">Base Imponible:</td>
+                        <td align="right">{_money(totals.subtotal)}</td>
+                    </tr>
+                    <tr>
+                        <td style="color: #555;">IVA:</td>
+                        <td align="right">{_money(totals.iva)}</td>
+                    </tr>
+                    <tr style="font-weight: bold; font-size: 12px;">
+                        <td style="padding-top: 5px; border-top: 1px dashed #111;">TOTAL FACTURA:</td>
+                        <td align="right" style="padding-top: 5px; border-top: 1px dashed #111;">{_money(totals.total)}</td>
+                    </tr>
+                </table>
+
+                <div style="font-size: 8px; color: #666; margin-top: 14px; border-top: 1px solid #ccc; padding-top: 6px;">
+                    AEAT: {vf_active} | Email Automático: {em_active}
+                </div>
+                {notas_html}
+            </div>
+            """
+        else:  # classic (Clásica)
+            html = f"""
+            <div style="font-family: Arial, Helvetica, sans-serif; color: #2c3e50; padding: 4px;">
+                <!-- Estilo corporativo clásico -->
+                <table width="100%" cellspacing="0" cellpadding="0" style="margin-bottom: 14px; border-bottom: 3px solid #1c2d5a; padding-bottom: 8px;">
+                    <tr>
+                        <td>
+                            <span style="font-size: 18px; font-weight: bold; color: #1c2d5a;">💼 FACTURA CLÁSICA</span><br/>
+                            <span style="font-size: 10px; color: #7f8c8d;">Nº {num_factura} | Fecha: {self.date_input.date().toPython().isoformat()}</span>
+                        </td>
+                        <td style="text-align: right;">
+                            <span style="font-size: 12px; font-weight: bold; color: #1c2d5a;">{em_nombre}</span><br/>
+                            <span style="font-size: 9px; color: #7f8c8d;">NIF: {em_nif} | {em_correo}</span>
+                        </td>
+                    </tr>
+                </table>
+
+                <table width="100%" cellspacing="0" cellpadding="0" style="font-size: 11px; margin-bottom: 14px; background-color: #fdfdfd; border: 1px solid #e2e5f1; padding: 10px; border-radius: 4px;">
+                    <tr>
+                        <td>
+                            <b style="color: #1c2d5a;">DATOS DEL CLIENTE</b><br/>
+                            <b>Nombre:</b> {self.client_input.text() or 'Receptor'}<br/>
+                            <b>NIF:</b> {self.nif_input.text() or '-'}<br/>
+                            <b>Dirección:</b> {self.address_input.text() or '-'}<br/>
+                            <b>Email:</b> {self.email_input.text() or '-'}
+                        </td>
+                    </tr>
+                </table>
+
+                <table width="100%" cellspacing="0" cellpadding="0" style="font-size: 11px; margin-bottom: 14px; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background-color: #1c2d5a; color: white;">
+                            <th align="left" style="padding: 5px 8px;">Concepto</th>
+                            <th align="center" style="padding: 5px 8px; width: 35px;">Cant</th>
+                            <th align="right" style="padding: 5px 8px; width: 70px;">Precio</th>
+                            <th align="center" style="padding: 5px 8px; width: 35px;">IVA</th>
+                            <th align="right" style="padding: 5px 8px; width: 75px;">Subtotal</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {table_rows_html}
+                    </tbody>
+                </table>
+
+                <table width="45%" cellspacing="0" cellpadding="0" align="right" style="font-size: 11px; margin-top: 10px;">
+                    <tr>
+                        <td style="padding: 3px 0; color: #7f8c8d;">Base:</td>
+                        <td align="right">{_money(totals.subtotal)}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 3px 0; color: #7f8c8d; border-bottom: 1px solid #e2e5f1;">IVA:</td>
+                        <td align="right" style="padding: 3px 0; border-bottom: 1px solid #e2e5f1;">{_money(totals.iva)}</td>
+                    </tr>
+                    <tr style="font-weight: bold; color: #1c2d5a; font-size: 12px;">
+                        <td style="padding-top: 6px;">TOTAL:</td>
+                        <td align="right" style="padding-top: 6px;">{_money(totals.total)}</td>
+                    </tr>
+                </table>
+                <div style="clear: both;"></div>
+
+                <div style="font-size: 9px; color: #7f8c8d; margin-top: 14px; padding-top: 6px; border-top: 1px solid #eee;">
+                    <b>AEAT Registro:</b> {vf_active} | <b>Envío Email:</b> {em_active}
+                </div>
+                {notas_html}
+            </div>
+            """
+
+        self.preview.setHtml(html)
 
     def save(self, emit: bool = False) -> None:
         if not self.client_input.text().strip():
@@ -443,6 +957,7 @@ class InvoiceFormPanel(QFrame):
             QMessageBox.warning(self, "Faltan líneas", "Añade al menos una línea válida.")
             return
         fecha = self.date_input.date().toPython()
+        use_verifactu = emit and self.verifactu_check.isChecked()
         try:
             if self.factura:
                 saved = self.controller.update_factura(
@@ -466,26 +981,56 @@ class InvoiceFormPanel(QFrame):
                     notas=self.notes_input.toPlainText().strip(),
                 )
             if emit:
-                saved = self.controller.emit_factura(saved.id)
+                saved = self.controller.emit_factura(saved.id, use_verifactu=use_verifactu)
         except Exception as exc:
             QMessageBox.critical(self, "No se pudo guardar", str(exc))
             return
-        if emit and self.auto_email_check.isChecked() and self.email_service is not None:
+
+        # Guardar en local storage (QSettings) para paridad total con localStorage de la web de referencia
+        from PySide6.QtCore import QSettings
+        qsettings = QSettings("Automalize", "DesktopApp")
+        qsettings.setValue(f"invoice_template_{saved.id}", self._selected_template)
+
+        if emit:
             try:
-                path = generate_invoice_pdf(saved, Path.cwd() / "exports" / "pdf")
-                self.email_service.send_invoice(saved, path)
-            except Exception as exc:
-                QMessageBox.warning(
-                    self,
-                    "Factura emitida",
-                    f"La factura se emitio, pero no se pudo enviar el email:\n{exc}",
+                emisor_details = self.controller.get_emisor_details()
+                pdf_path = generate_invoice_pdf(
+                    saved,
+                    Path.cwd() / "exports" / "pdf",
+                    template=self._selected_template,
+                    emisor_details=emisor_details,
                 )
-            else:
-                QMessageBox.information(
-                    self,
-                    "Email enviado",
-                    f"Factura enviada a {saved.cliente_email}.",
-                )
+            except Exception:
+                pdf_path = None
+            if self.auto_email_check.isChecked():
+                dest_email = self.auto_email_input.text().strip() or saved.cliente_email
+                if not dest_email:
+                    QMessageBox.warning(self, "Email no enviado", "No se especificó ninguna dirección de correo para enviar la factura.")
+                elif self.email_service is not None and self.email_service.is_configured():
+                    try:
+                        if pdf_path:
+                            saved.cliente_email = dest_email
+                            self.email_service.send_invoice(saved, pdf_path)
+                    except Exception as exc:
+                        QMessageBox.warning(
+                            self, "Factura emitida",
+                            f"La factura se emitió, pero no se pudo enviar el email real:\n{exc}",
+                        )
+                    else:
+                        QMessageBox.information(
+                            self, "Email enviado", f"Factura enviada a {dest_email}.",
+                        )
+                else:
+                    # SIMULACIÓN DE ENVÍO DE EMAIL PARA DESARROLLO / TFG
+                    QMessageBox.information(
+                        self, "📧 Email Enviado (Simulación TFG)",
+                        f"¡Envío simulado correctamente!\nSe habría enviado la factura PDF (Estilo: {self._selected_template.upper()}) al correo del cliente: {dest_email}.\n\n(Configura las variables SMTP en tu .env para envíos reales).",
+                    )
+            vf_msg = " y registrada en la AEAT (Verifactu)" if use_verifactu else ""
+            QMessageBox.information(
+                self, "✅ Factura emitida",
+                f"Factura emitida{vf_msg}.\nPDF generado ({self._selected_template.upper()}): {pdf_path or 'no disponible'}",
+            )
         self.on_saved()
         self.close_panel()
 
@@ -1267,13 +1812,21 @@ class MainWindow(QMainWindow):
         self.render_invoices()
 
     def generate_pdf(self, factura: Factura) -> Path:
-        path = generate_invoice_pdf(factura, Path.cwd() / "exports" / "pdf")
+        from PySide6.QtCore import QSettings
+        qsettings = QSettings("Automalize", "DesktopApp")
+        template = qsettings.value(f"invoice_template_{factura.id}", "classic")
+        emisor_details = self.factura_controller.get_emisor_details()
+        path = generate_invoice_pdf(factura, Path.cwd() / "exports" / "pdf", template=template, emisor_details=emisor_details)
         QMessageBox.information(self, "PDF generado", f"Archivo generado:\n{path}")
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
         return path
 
     def send_invoice_email(self, factura: Factura) -> None:
-        path = generate_invoice_pdf(factura, Path.cwd() / "exports" / "pdf")
+        from PySide6.QtCore import QSettings
+        qsettings = QSettings("Automalize", "DesktopApp")
+        template = qsettings.value(f"invoice_template_{factura.id}", "classic")
+        emisor_details = self.factura_controller.get_emisor_details()
+        path = generate_invoice_pdf(factura, Path.cwd() / "exports" / "pdf", template=template, emisor_details=emisor_details)
         self.email_service.send_invoice(factura, path)
         QMessageBox.information(self, "Email enviado", f"Factura enviada a {factura.cliente_email}.")
 
@@ -1365,8 +1918,9 @@ class MainWindow(QMainWindow):
         t_card_l.addWidget(t_title)
         t_card_l.addWidget(t_desc)
 
-        t_zone = QFrame()
+        t_zone = DropZoneFrame("Ticket")
         t_zone.setObjectName("dropZone")
+        t_zone.fileDropped.connect(lambda path: self._process_file(path, "Ticket"))
         t_zone_l = QVBoxLayout(t_zone)
         t_zone_l.setContentsMargins(24, 32, 24, 32)
         t_zone_l.setSpacing(10)
@@ -1412,8 +1966,9 @@ class MainWindow(QMainWindow):
         p_card_l.addWidget(p_title)
         p_card_l.addWidget(p_desc)
 
-        p_zone = QFrame()
+        p_zone = DropZoneFrame("PDF")
         p_zone.setObjectName("dropZone")
+        p_zone.fileDropped.connect(lambda path: self._process_file(path, "PDF"))
         p_zone_l = QVBoxLayout(p_zone)
         p_zone_l.setContentsMargins(24, 32, 24, 32)
         p_zone_l.setSpacing(10)
@@ -1502,6 +2057,16 @@ class MainWindow(QMainWindow):
         self._tab_ticket.clicked.connect(lambda: _switch_tab(0))
         self._tab_pdf.clicked.connect(lambda: _switch_tab(1))
 
+    def _process_file(self, path: str, source: str) -> None:
+        self._ocr_current_source = source
+        self._show_processing(source)
+
+        worker = OcrWorker(path)
+        worker.finished.connect(self._on_ocr_done)
+        worker.error.connect(self._on_ocr_error)
+        self._ocr_worker = worker
+        worker.start()
+
     def _pick_file(self, source: str) -> None:
         """Open file dialog and start OCR processing."""
         if source == "PDF":
@@ -1515,14 +2080,7 @@ class MainWindow(QMainWindow):
         if not path:
             return
 
-        self._ocr_current_source = source
-        self._show_processing(source)
-
-        worker = OcrWorker(path)
-        worker.finished.connect(self._on_ocr_done)
-        worker.error.connect(self._on_ocr_error)
-        self._ocr_worker = worker
-        worker.start()
+        self._process_file(path, source)
 
     def _show_processing(self, source: str) -> None:
         self._mode_stack.setVisible(False)
@@ -1811,6 +2369,10 @@ QFrame#dropZone {
     border: 2px dashed #c5c9f0;
     border-radius: 10px;
     min-height: 180px;
+}
+QFrame#dropZone[dragOver="true"] {
+    background: #ece9ff;
+    border: 2px dashed #5a50ee;
 }
 QLabel#dropZoneIcon {
     font-size: 48px;
@@ -2377,8 +2939,35 @@ QDialog {
 QDialog QFrame#panel {
     background: #ffffff;
 }
-QLabel, QCheckBox {
+QLabel {
     background: transparent;
+}
+QCheckBox {
+    spacing: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #181a2f;
+    background: transparent;
+}
+QCheckBox::indicator {
+    width: 20px;
+    height: 20px;
+    border: 2px solid #c5c9f0;
+    border-radius: 6px;
+    background-color: #ffffff;
+}
+QCheckBox::indicator:hover {
+    border: 2px solid #5a50ee;
+    background-color: #f4f3ff;
+}
+QCheckBox::indicator:checked {
+    background-color: #5a50ee;
+    border: 2px solid #5a50ee;
+    image: url(app/assets/checkmark.png);
+}
+QCheckBox::indicator:disabled {
+    border: 2px solid #e2e5f1;
+    background-color: #f4f5fb;
 }
 QMessageBox {
     background: #ffffff;
