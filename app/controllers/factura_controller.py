@@ -197,10 +197,6 @@ class FacturaController:
             )
             payload = {
                 "id_cliente": cliente_id,
-                "receptor_nombre": cliente_nombre or None,
-                "receptor_cif_nif": cliente_nif or None,
-                "receptor_email": cliente_email or None,
-                "receptor_direccion": cliente_direccion or None,
                 "fecha_emision": fecha.isoformat(),
                 "descripcion_general": _general_description(lineas),
                 "descripcion_producto_servicio": line.descripcion,
@@ -517,10 +513,6 @@ class FacturaController:
         payload = {
             "id_emisor": self.emisor_id,
             "id_cliente": cliente_id,
-            "receptor_nombre": cliente_nombre or None,
-            "receptor_cif_nif": cliente_nif or None,
-            "receptor_email": cliente_email or None,
-            "receptor_direccion": cliente_direccion or None,
             "serie": serie,
             "numero_factura": numero,
             "fecha_emision": fecha.isoformat(),
